@@ -1,0 +1,32 @@
+[
+  {
+    "file": "western-panels.onnx",
+    "repo": "cedarrapidsboy/inkwell-panel-models",
+    "revision": "fa7afba",
+    "remote": "best.onnx",
+    "license": "AGPL-3.0",
+    "url": "https://huggingface.co/cedarrapidsboy/inkwell-panel-models/resolve/fa7afba/best.onnx",
+    "sha256": "f240e1296efd048126b26ea4ffeddc97d7c3aa667a37e3127c2afc6d5e9b9578",
+    "bytes": 12256396
+  },
+  {
+    "file": "panel-order.onnx",
+    "repo": "cedarrapidsboy/inkwell-panel-models",
+    "revision": "fa7afba",
+    "remote": "panel-order-model.onnx",
+    "license": "MIT",
+    "url": "https://huggingface.co/cedarrapidsboy/inkwell-panel-models/resolve/fa7afba/panel-order-model.onnx",
+    "sha256": "84eb78fc5ec31a3e986a7a16ce10f7baa657ef5c5b4a98877b40aa9354ff3464",
+    "bytes": 103294
+  },
+  {
+    "file": "panel-shapes.onnx",
+    "repo": "Remidesbois/Poneglyph-ReaderNet",
+    "revision": "d97d4cd",
+    "remote": "panel_detector.onnx",
+    "license": "AGPL-3.0",
+    "url": "https://huggingface.co/Remidesbois/Poneglyph-ReaderNet/resolve/d97d4cd/panel_detector.onnx",
+    "sha256": "67a9b0128a49cf8c1c0a7e1907e0e943fdedcaedf0877894b0fb87d9283c597f",
+    "bytes": 12457857
+  }
+]

@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "repository": "Remidesbois/Poneglyph-ReaderNet",
+  "runtime": {
+    "ordering": "panel-constrained; no global bubble ordering",
+    "panel_polygon_representation": "detector bounding box as a four-point polygon"
+  },
+  "artifacts": {
+    "bubble_detector.onnx": {
+      "bytes": 9898957,
+      "sha256": "fa28ece56ba9e5ccf4361fbb4d2533e088906b0a0d1cd187c02422ba7d6f5688",
+      "ir_version": 7,
+      "opsets": {
+        "ai.onnx": 12
+      },
+      "inputs": {
+        "images": [
+          1,
+          3,
+          800,
+          800
+        ]
+      },
+      "outputs": {
+        "output0": [
+          1,
+          300,
+          6
+        ]
+      }
+    },
+    "metrics/box_polygon_runtime_metrics.json": {
+      "bytes": 503,
+      "sha256": "e5e6267dfc8832984bf29eefa01abe79ea87029f8149cf21d14152d06b7bd97b"
+    },
+    "metrics/bubble_order_metrics.json": {
+      "bytes": 21717,
+      "sha256": "5e7f786ad773678bb7f2bd127e456385e62679e07f464d5ab62774650c7dee02"
+    },
+    "metrics/end_to_end_metrics.json": {
+      "bytes": 13016,
+      "sha256": "8bcba8a2e3d2f89daa5435453b257e880d24a2da14f8dc27cbd8556b6c998873"
+    },
+    "metrics/panel_detector_metrics.json": {
+      "bytes": 89209,
+      "sha256": "04f5d9f08a70f751aea21b6c3ed397244c9f74de845e6f2a4d63a9c1b8de7ab8"
+    },
+    "metrics/panel_order_metrics.json": {
+      "bytes": 23128,
+      "sha256": "3df46ae77c50f02bcfb01eddd82d1386b6558a6c4b203ab9c4ac89cc6010d06a"
+    },
+    "metrics/shared_detector_comparison.json": {
+      "bytes": 22265,
+      "sha256": "130c1e02129c4fb226c535a72679b5c958f3f3da8a06fae0b719180e0a8a7bf8"
+    },
+    "ordering.onnx": {
+      "bytes": 280470,
+      "sha256": "e5c92135ccdbcb7cb678ec05388be03348d8b2eff7f7d24b9ef7644e2a23df94",
+      "ir_version": 10,
+      "opsets": {
+        "ai.onnx": 18
+      },
+      "inputs": {
+        "panel_features": [
+          "panel_pairs",
+          96
+        ],
+        "bubble_features": [
+          "bubble_pairs",
+          102
+        ]
+      },
+      "outputs": {
+        "panel_logits": [
+          "panel_pairs"
+        ],
+        "bubble_logits": [
+          "bubble_pairs"
+        ]
+      }
+    },
+    "panel_detector.onnx": {
+      "bytes": 12457857,
+      "sha256": "67a9b0128a49cf8c1c0a7e1907e0e943fdedcaedf0877894b0fb87d9283c597f",
+      "ir_version": 7,
+      "opsets": {
+        "ai.onnx": 12
+      },
+      "inputs": {
+        "images": [
+          1,
+          3,
+          1504,
+          1504
+        ]
+      },
+      "outputs": {
+        "output0": [
+          1,
+          300,
+          38
+        ],
+        "output1": [
+          1,
+          32,
+          376,
+          376
+        ]
+      }
+    },
+    "parity_report.json": {
+      "bytes": 338,
+      "sha256": "fa27124cc1d132da0b9ecabaef74dd3ba834a5a317c2a589d74ef5156b587663"
+    },
+    "README.md": {
+      "bytes": 2567,
+      "sha256": "a20fce3bde9160b4932595a3270c9a51933fd9c125357806a195d62b9853287b"
+    }
+  }
+}
