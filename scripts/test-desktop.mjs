@@ -13,8 +13,12 @@ await fs.mkdir(library); await fs.mkdir(images);
 const pageBytes = await sharp(Buffer.from('<svg width="800" height="1800"><rect width="800" height="1800" fill="#fff"/><rect x="30" y="30" width="740" height="830" fill="#335977"/><rect x="30" y="910" width="740" height="850" fill="#774e50"/></svg>')).png().toBuffer();
 async function zip(file) { const archive = new yazl.ZipFile(), out = createWriteStream(file); archive.outputStream.pipe(out); for (const name of ['01.png','02.png','03.png']) archive.addBuffer(pageBytes, name); archive.end(); await finished(out); }
 await zip(path.join(library, 'Fixture 1.cbz'));
+const batman = path.join(library, 'DC', 'Batman'); await fs.mkdir(batman, { recursive: true });
+await zip(path.join(batman, 'Batman 035.cbz')); await zip(path.join(batman, 'Batman 036.cbz'));
 for (let i = 0; i < 3; i++) await fs.writeFile(path.join(images, `${i + 1}.png`), pageBytes);
 await sharp({ create: { width: 400, height: 18000, channels: 3, background: '#335977' } }).png().toFile(path.join(images, '4-long.png'));
+const standaloneImage = path.join(testRoot, 'standalone-webtoon.png'); await fs.copyFile(path.join(images, '4-long.png'), standaloneImage);
+const standaloneJpg = path.join(testRoot, 'standalone-page.jpg'); await sharp({ create: { width: 600, height: 900, channels: 3, background: '#6b496f' } }).jpeg().toFile(standaloneJpg);
 const env = { ...process.env, PANEL_READER_DATA: path.join(testRoot, 'data') }; delete env.ELECTRON_RUN_AS_NODE;
 const executablePath = process.env.PANEL_READER_EXE;
 const app = await electron.launch({ ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }), env, timeout: 60000 });
@@ -26,13 +30,24 @@ const dialogFiles = files => app.evaluate(({ dialog }, filePaths) => { dialog.sh
 const check = async (name, fn) => { await fn(); checks.push(name); console.log('PASS:', name); };
 try {
   await check('desktop launches with empty library', async () => { await expect(page.getByText('Your next story starts here.')).toBeVisible(); await page.screenshot({ path: 'validation/ui-empty.png' }); });
-  await check('folder selection and rescan discover new comics', async () => {
+  await check('recursive scan preserves clickable nested folders and discovers new comics', async () => {
     await dialogFiles([library]); await page.locator('.library-top').getByRole('button', { name: 'Add library folder' }).click();
-    await expect(page.locator('.book-card')).toHaveCount(1);
-    await zip(path.join(library, 'Fixture 2.cbz')); await page.keyboard.press('F5'); await expect(page.locator('.book-card')).toHaveCount(2);
+    await expect(page.locator('.folder-card')).toHaveCount(1); await expect(page.locator('.book-card')).toHaveCount(0);
+    await page.locator('.folder-select').filter({ hasText: 'Batman' }).click(); await expect(page.locator('.book-card')).toHaveCount(2);
+    await expect(page.locator('.library-title')).toContainText('Batman');
+    await page.getByRole('button', { name: /Home/ }).first().click();
+    await zip(path.join(library, 'Fixture 2.cbz')); await page.keyboard.press('F5'); await page.locator('.folder-card').filter({ hasText: 'comics' }).click(); await expect(page.locator('.book-card')).toHaveCount(2);
+    await page.getByRole('button', { name: /Home/ }).first().click();
+  });
+  await check('series history queues the next issue', async () => {
+    await page.locator('.folder-select').filter({ hasText: 'Batman' }).click();
+    await page.locator('.book-card').filter({ hasText: 'Batman 035' }).click(); await expect(page.locator('.reader-title strong')).toContainText('Batman 035');
+    await page.keyboard.press('l'); await page.getByRole('button', { name: /Home/ }).first().click(); await expect(page.locator('.up-next')).toContainText('Batman 036'); await expect(page.locator('.up-next')).toContainText('After Batman 035');
+    await page.getByRole('button', { name: /History/ }).first().click(); await expect(page.locator('.book-card')).toHaveCount(1); await expect(page.locator('.book-card')).toContainText('Batman 035');
+    await page.getByRole('button', { name: /Home/ }).first().click();
   });
   await check('Up and Down scroll within a page by the configured amount', async () => {
-    await page.locator('.book-card').first().click(); await expect(page.locator('.page-count')).toContainText('Page 1'); await page.keyboard.press('w');
+    await page.locator('.folder-card').filter({ hasText: 'comics' }).click(); await page.locator('.book-card').first().click(); await expect(page.locator('.page-count')).toContainText('Page 1'); await page.keyboard.press('w');
     await expect(page.locator('.page-art img')).toBeVisible(); await page.keyboard.press('ArrowDown');
     await expect.poll(() => page.locator('.reading-viewport').evaluate(e => Math.round(e.scrollTop))).toBe(160);
     await expect(page.locator('.page-count')).toContainText('Page 1'); await page.keyboard.press('ArrowUp');
@@ -95,6 +110,7 @@ try {
     await page.keyboard.press('ArrowDown');
     const before = await page.locator('.reading-viewport').evaluate(e => e.scrollTop);
     await page.keyboard.press('l'); await expect(page.locator('.library-main')).toBeVisible();
+    await page.getByRole('button', { name: /Home/ }).first().click();
     await expect(page.locator('.resume-card')).toContainText('Page 4');
     await page.keyboard.press('l'); await expect(page.locator('.page-count')).toContainText('Page 4');
     await expect.poll(() => page.locator('.reading-viewport').evaluate(e => e.scrollTop)).toBeGreaterThan(0);
@@ -102,11 +118,23 @@ try {
     await page.keyboard.press('t'); await expect(page.locator('.page-count')).toContainText('Page 4');
     expect(before).toBeGreaterThan(0);
   });
+  await check('standalone JPG and PNG open directly, with tall images using webtoon mode', async () => {
+    await page.keyboard.press('t');
+    await dialogFiles([standaloneJpg]); await page.keyboard.press('Control+o'); await expect(page.locator('.reader-title strong')).toContainText('standalone-page'); await expect(page.locator('.page-art img')).toBeVisible();
+    await dialogFiles([standaloneImage]); await page.keyboard.press('Control+o'); await expect(page.locator('.reader-title strong')).toContainText('standalone-webtoon');
+    await expect(page.locator('.reader-title')).toContainText('Continuous scroll'); await expect(page.locator('.webtoon-page')).toHaveCount(1);
+    await expect(page.locator('.webtoon-page img')).toHaveCount(5); await expect.poll(() => page.locator('.webtoon-page img').first().evaluate(e => e.naturalHeight)).toBeGreaterThan(0);
+  });
   await check('library covers render and reading settings persist to disk', async () => {
     await page.keyboard.press('l'); await expect(page.locator('.library-main')).toBeVisible();
     await expect.poll(() => page.locator('.book-card img').first().evaluate(e => e.naturalWidth)).toBeGreaterThan(0);
     await page.screenshot({ path:'validation/ui-library.png' });
     const state = JSON.parse(await fs.readFile(path.join(testRoot,'data','library.json'),'utf8')); expect(state.settings.shortcuts.next).toBe('J'); expect(state.settings.scrollAmount).toBe(240); expect(state.settings.background).toBe('#243142');
+  });
+  await check('library roots can be changed and removed', async () => {
+    await dialogFiles([library]); await page.getByRole('button', { name: /Change comics folder/ }).click(); await expect(page.locator('.folder-select').filter({ hasText: 'comics' })).toBeVisible();
+    await page.getByRole('button', { name: /Remove comics folder/ }).click(); await expect(page.getByRole('dialog', { name: 'Remove library folder' })).toBeVisible();
+    await page.getByRole('button', { name: 'Remove folder', exact: true }).click(); await expect(page.locator('.folder-select')).toHaveCount(0);
   });
   expect(failures).toEqual([]);
 } catch (e) { failures.push(e.stack); await page.screenshot({ path:'validation/ui-failure.png' }).catch(() => {}); console.error(e); process.exitCode = 1; }

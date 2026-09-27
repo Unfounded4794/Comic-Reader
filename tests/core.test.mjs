@@ -8,6 +8,7 @@ import { createWriteStream } from 'node:fs';
 import yazl from 'yazl';
 import { openArchive, isImage, naturalCompare } from '../core/archive.mjs';
 import { scanFolders } from '../core/library.mjs';
+import { booksInFolder, directBooksInFolder, findFolderNode, folderTree, readingHistory, seriesContinuations } from '../core/catalog.mjs';
 import { DEFAULT_SETTINGS, ACTIONS, normalizeSettings, keyChord } from '../core/settings.mjs';
 import { suppressDuplicates, validatePanels, orderFeatures } from '../core/panels.mjs';
 async function temporary(t) { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'panel-reader-test-')); t.after(() => fs.rm(dir, { recursive: true, force: true })); return dir; }
@@ -21,6 +22,13 @@ test('CBZ reads actual entries in natural order, skipping metadata; disguised ex
   assert.equal((await archive.read(1)).toString(), 'pages/2.jpg');
   assert.throws(() => archive.read(50), /Page does not exist/);
 });
+test('standalone JPG and PNG files open as one-page books', async t => {
+  const dir = await temporary(t);
+  for (const name of ['long-webtoon.jpg', 'page.png']) {
+    const file = path.join(dir, name), bytes = Buffer.from(`image:${name}`); await fs.writeFile(file, bytes);
+    const image = await openArchive(file); assert.equal(image.kind, 'image'); assert.deepEqual(image.names, [name]); assert.deepEqual(await image.read(0), bytes); assert.throws(() => image.read(1), /Page does not exist/);
+  }
+});
 test('folder rescans discover nested additions once, retain progress, and mark missing files', async t => {
   const dir = await temporary(t); await fs.mkdir(path.join(dir, 'nested'));
   await fs.writeFile(path.join(dir, 'Issue 1.cbz'), 'one');
@@ -31,6 +39,32 @@ test('folder rescans discover nested additions once, retain progress, and mark m
   assert.equal(second.added, 1); assert.equal(second.books.length, 2); assert.deepEqual(second.books[0].progress, { page: 5, panel: 2 }); assert.equal(second.books[0].isNew, false);
   await fs.unlink(path.join(dir, 'Issue 1.cbz'));
   const third = await scanFolders([dir], second.books); assert.equal(third.added, 0); assert.equal(third.books[0].missing, true);
+});
+test('deep folder scans preserve the hierarchy and assign overlapping roots once', async t => {
+  const dir = await temporary(t), series = path.join(dir, 'DC', 'Batman', '2023');
+  await fs.mkdir(series, { recursive: true });
+  await fs.writeFile(path.join(series, 'Batman 035.cbz'), 'thirty-five');
+  await fs.writeFile(path.join(series, 'Batman 036.cbr'), 'thirty-six');
+  const result = await scanFolders([dir, path.join(dir, 'DC')]);
+  assert.equal(result.books.length, 2);
+  assert.ok(result.books.every(book => book.root === path.join(dir, 'DC')));
+  assert.ok(result.books.every(book => book.relativeDir.replaceAll('\\', '/') === 'Batman/2023'));
+  const tree = folderTree([path.join(dir, 'DC')], result.books);
+  assert.equal(tree[0].count, 2); assert.equal(tree[0].children[0].name, 'Batman'); assert.equal(tree[0].children[0].children[0].name, '2023');
+  assert.equal(booksInFolder(result.books, { root: path.join(dir, 'DC'), relative: 'Batman' }).length, 2);
+  assert.equal(directBooksInFolder(result.books, { root: path.join(dir, 'DC'), relative: 'Batman' }).length, 0);
+  assert.equal(directBooksInFolder(result.books, { root: path.join(dir, 'DC'), relative: 'Batman/2023' }).length, 2);
+  assert.equal(findFolderNode(tree, { root: path.join(dir, 'DC'), relative: 'Batman/2023' }).count, 2);
+});
+test('history and up-next queues follow natural issue order within each folder', () => {
+  const books = [
+    { id: '35', title: 'Batman 035', folder: 'P:/DC/Batman', lastRead: 100 },
+    { id: '36', title: 'Batman 036', folder: 'P:/DC/Batman' },
+    { id: '1', title: 'Impulse 01', folder: 'P:/DC/Impulse', lastRead: 200 },
+    { id: '2', title: 'Impulse 02', folder: 'P:/DC/Impulse' },
+  ];
+  assert.deepEqual(readingHistory(books).map(book => book.id), ['1', '35']);
+  assert.deepEqual(seriesContinuations(books).map(item => item.next.id), ['2', '36']);
 });
 test('shortcuts are unique, fully configurable, and use layout-independent key codes', () => {
   assert.equal(new Set(ACTIONS.map(a => a[2])).size, ACTIONS.length);

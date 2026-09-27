@@ -33,7 +33,11 @@ async function raw(file, page) {
 }
 async function panelPath(file, page) { return path.join(workerData.cache, `${(await archive(file)).fingerprint}-${page}-panels.json`); }
 const methods = {
-  async open({ file }) { const { handle, fingerprint } = await archive(file); return { names: handle.names, kind: handle.kind, fingerprint }; },
+  async open({ file }) {
+    const { handle, fingerprint } = await archive(file); let suggestedWebtoon = false;
+    if (handle.kind === 'image') { const meta = await sharp(await handle.read(0), { limitInputPixels: 400000000 }).metadata(); suggestedWebtoon = (meta.autoOrient?.height ?? meta.height) > (meta.autoOrient?.width ?? meta.width) * 2; }
+    return { names: handle.names, kind: handle.kind, fingerprint, suggestedWebtoon };
+  },
   async info({ file, page }) {
     const meta = await sharp(await raw(file, page), { limitInputPixels: 400000000 }).metadata();
     const width = meta.autoOrient?.width ?? meta.width, height = meta.autoOrient?.height ?? meta.height;

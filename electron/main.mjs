@@ -4,9 +4,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { scanFolders, bookId } from '../core/library.mjs';
-import { COMIC_RE } from '../core/archive.mjs';
+import { COMIC_RE, IMAGE_RE } from '../core/archive.mjs';
 import { normalizeSettings } from '../core/settings.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pathKey = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+const readableFile = value => COMIC_RE.test(value) || IMAGE_RE.test(value);
 if (process.env.PANEL_READER_DATA) app.setPath('userData', path.resolve(process.env.PANEL_READER_DATA));
 protocol.registerSchemesAsPrivileged([{ scheme: 'comic', privileges: { standard: true, secure: true, supportFetchAPI: true } }, { scheme: 'reader', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let window, worker, scanTimer, scanning, state = { folders: [], books: [], settings: normalizeSettings(), lastBook: null };
@@ -33,9 +35,9 @@ async function addPaths(files) {
   for (const file of files) {
     if (typeof file !== 'string' || !path.isAbsolute(file)) throw new Error('Invalid file path.');
     const stat = await fs.stat(file);
-    if (!stat.isDirectory() && !COMIC_RE.test(file)) throw new Error('Choose a CBZ, CBR, ZIP, RAR, or image folder.');
+    if (!stat.isDirectory() && !readableFile(file)) throw new Error('Choose a comic archive, supported image, or image folder.');
     const id = bookId(file); let book = state.books.find(b => b.id === id);
-    if (!book) { book = { id, path: file, title: stat.isDirectory() ? path.basename(file) : path.basename(file, path.extname(file)), format: stat.isDirectory() ? 'IMAGES' : path.extname(file).slice(1).toUpperCase(), added: Date.now(), size: stat.size, modified: stat.mtimeMs, isNew: true }; state.books.push(book); }
+    if (!book) { book = { id, path: file, folder: stat.isDirectory() ? file : path.dirname(file), source: 'opened', title: stat.isDirectory() ? path.basename(file) : path.basename(file, path.extname(file)), format: stat.isDirectory() ? 'IMAGES' : path.extname(file).slice(1).toUpperCase(), added: Date.now(), size: stat.size, modified: stat.mtimeMs, isNew: true }; state.books.push(book); }
     added.push(book);
   }
   await save(); emit('library', state); return added;
@@ -65,11 +67,15 @@ if (!lock) app.quit();
 else {
   app.on('second-instance', async (_, argv) => {
     window?.show(); window?.focus();
-    const files = argv.filter(a => COMIC_RE.test(a) && path.isAbsolute(a));
+    const files = argv.filter(a => readableFile(a) && path.isAbsolute(a));
     if (files.length) { try { const books = await addPaths(files); emit('open', books[0].id); } catch (e) { emit('error', e.message); } }
   });
   app.whenReady().then(async () => {
-  try { const saved = JSON.parse(await fs.readFile(statePath(), 'utf8')); state = { ...state, ...saved, settings: normalizeSettings(saved.settings), books: Array.isArray(saved.books) ? saved.books : [], folders: Array.isArray(saved.folders) ? saved.folders : [] }; }
+  try {
+    const saved = JSON.parse(await fs.readFile(statePath(), 'utf8'));
+    state = { ...state, ...saved, settings: normalizeSettings(saved.settings), books: Array.isArray(saved.books) ? saved.books : [], folders: Array.isArray(saved.folders) ? saved.folders : [] };
+    state.books = state.books.map(book => book.root ? { ...book, source: 'library', folder: book.folder || path.dirname(book.path), relativeDir: book.relativeDir ?? path.relative(book.root, path.dirname(book.path)) } : { ...book, source: book.source || 'opened', folder: book.folder || path.dirname(book.path) });
+  }
   catch (e) { if (e.code !== 'ENOENT') console.error('Could not restore library:', e.message); }
   worker = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { models: app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(root, 'models'), cache: path.join(app.getPath('userData'), 'cache') } });
   worker.on('message', ({ id, result, error }) => { const call = calls.get(id); if (!call) return; calls.delete(id); error ? call.reject(new Error(error)) : call.resolve(result); });
@@ -93,7 +99,7 @@ else {
   session.defaultSession.setPermissionCheckHandler(() => false);
   handle('state', () => state);
   handle('chooseComic', async () => {
-    const result = await dialog.showOpenDialog(window, { title: 'Open comic', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Comic archives', extensions: ['cbz', 'cbr', 'zip', 'rar'] }] });
+    const result = await dialog.showOpenDialog(window, { title: 'Open comic or image', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Comics and images', extensions: ['cbz', 'cbr', 'zip', 'rar', 'jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'tif', 'tiff'] }, { name: 'Comic archives', extensions: ['cbz', 'cbr', 'zip', 'rar'] }, { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'tif', 'tiff'] }] });
     return result.canceled ? [] : addPaths(result.filePaths);
   });
   handle('chooseImages', async () => { const result = await dialog.showOpenDialog(window, { title: 'Open folder of page images', properties: ['openDirectory'] }); return result.canceled ? [] : addPaths(result.filePaths); });
@@ -104,7 +110,27 @@ else {
     await save(); return rescan();
   });
   handle('addPaths', addPaths);
-  handle('removeFolder', async folder => { state.folders = state.folders.filter(f => f !== folder); await save(); emit('library', state); return state; });
+  handle('changeFolder', async folder => {
+    if (typeof folder !== 'string' || !state.folders.some(value => pathKey(value) === pathKey(folder))) throw new Error('Library folder is no longer available.');
+    if (scanning) await scanning;
+    const result = await dialog.showOpenDialog(window, { title: 'Choose the new location for this library folder', properties: ['openDirectory'] });
+    if (result.canceled) return null;
+    const replacement = path.resolve(result.filePaths[0]);
+    state.folders = [...new Map(state.folders.map(value => pathKey(value) === pathKey(folder) ? replacement : value).map(value => [pathKey(value), value])).values()];
+    state.books = state.books.map(book => {
+      if (!book.root || pathKey(book.root) !== pathKey(folder)) return book;
+      const relativeFile = path.relative(folder, book.path), nextPath = path.join(replacement, relativeFile);
+      return { ...book, id: bookId(nextPath), path: nextPath, root: replacement, folder: path.dirname(nextPath), relativeDir: path.relative(replacement, path.dirname(nextPath)) };
+    });
+    await save(); return rescan();
+  });
+  handle('removeFolder', async folder => {
+    if (typeof folder !== 'string') throw new Error('Invalid library folder.');
+    if (scanning) await scanning;
+    state.folders = state.folders.filter(value => pathKey(value) !== pathKey(folder));
+    state.books = state.books.filter(book => !book.root || pathKey(book.root) !== pathKey(folder));
+    await save(); emit('library', state); return state;
+  });
   handle('rescan', rescan);
   handle('open', async id => {
     const book = getBook(id), result = await rpc('open', { file: book.path });
@@ -130,7 +156,7 @@ else {
   window.on('leave-full-screen', () => emit('fullscreen', false));
   await window.loadURL(process.env.PANEL_READER_DEV || 'reader://app/');
   scheduleScan();
-  const initial = process.argv.filter(a => COMIC_RE.test(a) && path.isAbsolute(a));
+  const initial = process.argv.filter(a => readableFile(a) && path.isAbsolute(a));
   if (initial.length) { try { const books = await addPaths(initial); emit('open', books[0].id); } catch (e) { emit('error', e.message); } }
   app.on('window-all-closed', () => app.quit());
   let finishing = false;

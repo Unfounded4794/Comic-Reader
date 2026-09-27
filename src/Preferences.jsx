@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ACTIONS, DEFAULT_SETTINGS, keyChord } from '../core/settings.mjs';
 import { Button, Icon } from './icons.jsx';
-export default function Preferences({ settings, update, folders, onRemoveFolder, onClose, initialTab = 'reading' }) {
+export default function Preferences({ settings, update, folders, onRemoveFolder, onChangeFolder, onClose, initialTab = 'reading' }) {
   const [tab, setTab] = useState(initialTab), [recording, setRecording] = useState(null), [message, setMessage] = useState(''), [filter, setFilter] = useState('');
   const dialog = useRef();
   useEffect(() => { dialog.current.focus(); }, []);
@@ -38,7 +38,7 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
         <Range label="Detection confidence" description="Lower finds more candidates. Higher reduces false panels." value={settings.detectionThreshold} min={.1} max={.9} step={.01} display={`${Math.round(settings.detectionThreshold * 100)}%`} onChange={v => set('detectionThreshold', v)}/>
         <Range label="Space around each panel" value={settings.panelPadding} min={0} max={20} step={1} display={`${settings.panelPadding}%`} onChange={v => set('panelPadding', v)}/>
         <Range label="Dim surrounding artwork" value={settings.panelDim} min={0} max={1} step={.05} display={`${Math.round(settings.panelDim * 100)}%`} onChange={v => set('panelDim', v)}/>
-        <p className="muted">Unusual art, borderless panels, and advertisements can confuse detection. Use Edit panels to draw rectangles or polygons and correct their order. Corrections are saved per page. “Detect again” replaces them.</p>
+        <p className="muted">Unusual art, borderless panels, and advertisements can confuse detection. Use Edit panels to draw rectangles or polygons and correct their order. Corrections are saved for that page and used whenever you reopen it. They do not retrain the bundled models. “Detect again” replaces them.</p>
       </>}
       {tab === 'shortcuts' && <>
         <div className="shortcut-heading"><p>Click a binding, then press your key combination.<br/><span className="muted">Every reader command can be reassigned or unbound.</span></p><Button onClick={() => { set('shortcuts', { ...DEFAULT_SETTINGS.shortcuts }); setMessage('Defaults restored.'); }}>Reset defaults</Button></div>
@@ -50,8 +50,8 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
         <h3>Keep your collection close.</h3>
         <label className="setting-row"><span>Automatic rescan<small>Minutes between scans. Set to 0 for manual rescans only.</small></span><input aria-label="Automatic rescan minutes" type="number" min="0" max="120" value={settings.autoScanMinutes} onChange={e => set('autoScanMinutes', +e.target.value)}/></label>
         <Toggle label="Continue into the next comic" description="At the end of a comic, continue in title order." checked={settings.autoNextComic} onChange={v => set('autoNextComic', v)}/>
-        <h3>Watched folders</h3>{folders.length ? folders.map(folder => <div className="folder-setting" key={folder}><Icon name="folder"/><span>{folder}</span><Button onClick={() => onRemoveFolder(folder)}>Stop scanning</Button></div>) : <p className="muted">Add a library folder to find CBZ and CBR files, including subfolders.</p>}
-        <p className="muted">Stopping scans keeps your existing books and reading history. Your original files are never modified.</p>
+        <h3>Watched folders</h3>{folders.length ? folders.map(folder => <div className="folder-setting" key={folder}><Icon name="folder"/><span>{folder}</span><Button onClick={() => onChangeFolder(folder)}>Change…</Button><Button onClick={() => onRemoveFolder(folder)}>Remove</Button></div>) : <p className="muted">Add a library folder to find CBZ and CBR files, including subfolders.</p>}
+        <p className="muted">Changing a folder is useful after moving the same collection and preserves matching reading history. Removing it clears its comics from this library. Original files are never modified.</p>
       </>}
     </div><footer><span className="muted"><Icon name="check" size={14}/> Saved on this computer</span><Button className="primary" onClick={onClose}>Done</Button></footer>
   </section></div>;

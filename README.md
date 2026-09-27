@@ -4,19 +4,21 @@ A standalone, offline comic reader for Windows and Linux (including CachyOS). No
 
 ## Run the packaged app
 
-**Windows x64:** run `Panel-Reader-0.1.0-Windows-x64.exe`. This is a portable launcher: it extracts the bundled application temporarily and keeps your library/settings under `%APPDATA%/Panel Reader`. The build is unsigned.
+**Windows x64:** run `Panel-Reader-0.3.0-Windows-x64.exe`. This is a portable launcher: it extracts the bundled application temporarily and keeps your library/settings under `%APPDATA%/Panel Reader`. The build is unsigned.
 
-**CachyOS / Linux x64:** extract `Panel-Reader-0.1.0-Linux-x64.tar.gz`, open the extracted folder, and run `./panel-reader`. Executable permissions are included and verified in the archive. If your extraction tool discards them, run `chmod +x panel-reader chrome-sandbox chrome_crashpad_handler`. A normal graphical desktop with glibc, GTK 3, NSS, ALSA and GBM is needed; these are normally present on a desktop CachyOS installation. The tar distribution does not need FUSE. Linux packages are cross-built; this development machine has not run the application on CachyOS.
+**CachyOS / Linux x64:** extract `Panel-Reader-0.3.0-Linux-x64.tar.gz`, open the extracted folder, and run `./panel-reader`. Executable permissions are included and verified in the archive. If your extraction tool discards them, run `chmod +x panel-reader chrome-sandbox chrome_crashpad_handler`. A normal graphical desktop with glibc, GTK 3, NSS, ALSA and GBM is needed; these are normally present on a desktop CachyOS installation. The tar distribution does not need FUSE. Linux packages are cross-built; this development machine has not run the application on CachyOS.
 
 On Linux, preferences and cached panel layouts live in `~/.config/Panel Reader`. `PANEL_READER_DATA` can override the data directory, useful for tests or a portable profile. The comics themselves stay wherever you selected them.
 
 ## Read
 
-1. **Add folder** scans recursively for CBZ/CBR/ZIP/RAR archives. **Rescan folders** or F5 discovers new issues; scans also run every five minutes by default. Unavailable files keep their reading history. Newly discovered books have a NEW badge.
-2. **Open comic** accepts individual archives. You can also drop archives into the window. **Image folder** opens a folder of individual page images in natural filename order.
+1. **Add folder** scans recursively for CBZ/CBR/ZIP/RAR archives. Home displays watched roots as collection cards instead of flattening their contents. Opening a collection shows only its immediate subfolders and comics stored directly in it; continue down to a series folder to see that series’ issues. The same hierarchy appears as a clickable tree in the sidebar. Hover a watched root to change its location or remove it. **Rescan folders** or F5 discovers new issues; scans also run every five minutes by default. Unavailable files keep their reading history. Newly discovered books have a NEW badge.
+2. **Open comic / image** accepts individual archives and standalone JPG, PNG, WebP, AVIF, GIF or TIFF images. Files can also be dropped into the window. Tall standalone images automatically open in continuous webtoon mode. **Image folder** opens a folder of individual page images in natural filename order.
 3. Click a cover to read. Left/Right go backward/forward. **Up/Down scroll within the current page** using your configured pixel distance. Drag a page to pan.
 4. The toolbar has fit-page, fit-width and fit-height buttons, guided panels, webtoon mode, panel editing, preferences and fullscreen. The footer shows page/panel counts and zoom controls.
 5. F11 enters fullscreen and hides **all** controls, counters, scrollbars and notifications. Move the pointer without exposing overlays. Tab explicitly reveals/hides controls; Escape exits fullscreen. These shortcuts can be changed too.
+
+The Home screen keeps the most recently opened comic ready to resume, presents the library’s top-level folder structure, and shows an **Up next** card for every series folder with a later unread issue. It never dumps every scanned issue into one grid. The History view lists opened comics by most recent reading time. Newly Added and global search can deliberately show results across folders. Next/previous comic follows natural filename order within the current folder, so issue 36 follows issue 35.
 
 ## Default shortcuts
 
@@ -48,6 +50,8 @@ The reader centers and scales the active panel, dims the surroundings, and chang
 
 Press E to correct any page: select outlines, remove incorrect panels, draw rectangles or arbitrary polygons, and move panels earlier/later. For polygon drawing, click each corner and click Finish (Enter). Ctrl+S saves. Corrections persist independently of automatic detector settings. Ctrl+R can explicitly replace a saved layout after confirmation. Source archives are never modified.
 
+Saved corrections override detection on that page. They do not currently retrain or fine-tune the bundled neural models; training safely from a handful of personal corrections would tend to make the detector less reliable rather than more accurate.
+
 ## Webtoons
 
 Continuous mode stacks images without gaps by default. Set the column width and image gap in preferences. It accepts ordinary multi-image archives, image folders, and stitched tall images. Images taller than 4,096 pixels are served as strips; pages far from the viewport are unloaded. Up/Down scroll normally, while Next/Previous jump to the next/previous image. There is no automatic panel stepping in webtoon mode; switch to Guided panels for that.
@@ -75,7 +79,7 @@ Use `npm run pack:linux:tar` for a tar-only build. Cross-building from Windows r
 - Password-protected archives, multipart RARs, and RAR files above 1.5 GB are not supported. Individual compressed image entries are limited to 256 MB and decoded images to 400 megapixels.
 - JPEG, PNG, WebP, AVIF, GIF and TIFF page files are recognized. Animated images are treated as static pages; TIFF/GIF are normalized for display.
 - First-page cover thumbnails and panel results are cached locally. Automatic detections invalidate when archive size or modification time changes. Caches currently have no automatic disk eviction; the in-memory compressed-image cache is limited to 128 MB.
-- Library scans ignore symlinks to avoid cycles. Image folders read immediate child images; library archive scanning includes subfolders.
+- Library archive scanning includes every subfolder. Directory links are followed with real-path cycle detection, so linked collection folders work without creating scan loops. Image folders read immediate child images.
 - The local build is unsigned. No publishing, installer registration, file associations or system-wide changes are performed.
 
 The application is AGPL-3.0-only because the bundled detector models carry AGPL requirements. See `THIRD_PARTY_NOTICES.md` and `models/manifest.json` for provenance and checksums.

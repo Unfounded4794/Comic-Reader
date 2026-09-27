@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('reader', {
   state: () => invoke('state'),
   chooseComic: () => invoke('chooseComic'), chooseFolder: () => invoke('chooseFolder'), chooseImages: () => invoke('chooseImages'),
   addPaths: files => invoke('addPaths', files), pathForFile: file => webUtils.getPathForFile(file),
-  rescan: () => invoke('rescan'), removeFolder: folder => invoke('removeFolder', folder),
+  rescan: () => invoke('rescan'), removeFolder: folder => invoke('removeFolder', folder), changeFolder: folder => invoke('changeFolder', folder),
   open: id => invoke('open', id), info: (id, page) => invoke('info', id, page),
   panels: (id, page, force) => invoke('panels', id, page, force), savePanels: (id, page, panels) => invoke('savePanels', id, page, panels),
   settings: settings => invoke('settings', settings), progress: (id, progress) => invoke('progress', id, progress),

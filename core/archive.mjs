@@ -43,6 +43,7 @@ export async function openArchive(file) {
     if (!names.length) throw new Error('No supported images in this folder.');
     return { names, kind: 'folder', read: i => { if (!names[i]) throw new Error('Page does not exist.'); return fs.readFile(path.join(file, names[i])); }, close() {} };
   }
+  if (isImage(path.basename(file))) return { names: [path.basename(file)], kind: 'image', read: i => { if (i !== 0) throw new Error('Page does not exist.'); return fs.readFile(file); }, close() {} };
   const handle = await fs.open(file, 'r');
   const signature = Buffer.alloc(8);
   try { await handle.read(signature, 0, 8, 0); } finally { await handle.close(); }
