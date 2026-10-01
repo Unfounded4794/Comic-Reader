@@ -33,8 +33,8 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
         <label className="setting-row"><span>Gap between images</span><div className="number-control"><input aria-label="Webtoon gap" type="number" min="0" max="100" value={settings.webtoonGap} onChange={e => set('webtoonGap', +e.target.value)}/><span>px</span></div></label>
       </>}
       {tab === 'panels' && <>
-        <div className="info-banner"><Icon name="panels"/><div><strong>Local panel detection</strong><p>Two bundled vision models find panels and their outlines; a third predicts reading order. Your comics stay on this computer.</p></div></div>
-        <Toggle label="Refine panel outlines" description="Use the segmentation model alongside the Western-comics detector." checked={settings.shapeDetection} onChange={v => set('shapeDetection', v)}/>
+        <div className="info-banner"><Icon name="panels"/><div><strong>Local panel detection</strong><p>Panels include their speech bubbles. Missed areas are recovered as local reading regions, and switching views remembers your selected panel. Your comics stay on this computer.</p></div></div>
+        <Toggle label="Refine panel boundaries" description="Use an additional model to check panel boundaries." checked={settings.shapeDetection} onChange={v => set('shapeDetection', v)}/>
         <Range label="Detection confidence" description="Lower finds more candidates. Higher reduces false panels." value={settings.detectionThreshold} min={.1} max={.9} step={.01} display={`${Math.round(settings.detectionThreshold * 100)}%`} onChange={v => set('detectionThreshold', v)}/>
         <Range label="Space around each panel" value={settings.panelPadding} min={0} max={20} step={1} display={`${settings.panelPadding}%`} onChange={v => set('panelPadding', v)}/>
         <Range label="Dim surrounding artwork" value={settings.panelDim} min={0} max={1} step={.05} display={`${Math.round(settings.panelDim * 100)}%`} onChange={v => set('panelDim', v)}/>
@@ -49,7 +49,7 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
       {tab === 'library' && <>
         <h3>Keep your collection close.</h3>
         <label className="setting-row"><span>Automatic rescan<small>Minutes between scans. Set to 0 for manual rescans only.</small></span><input aria-label="Automatic rescan minutes" type="number" min="0" max="120" value={settings.autoScanMinutes} onChange={e => set('autoScanMinutes', +e.target.value)}/></label>
-        <Toggle label="Continue into the next comic" description="At the end of a comic, continue in title order." checked={settings.autoNextComic} onChange={v => set('autoNextComic', v)}/>
+        <Toggle label="Continue between comics" description="Cross the first or last page to read the previous or next comic in this folder." checked={settings.autoNextComic} onChange={v => set('autoNextComic', v)}/>
         <h3>Watched folders</h3>{folders.length ? folders.map(folder => <div className="folder-setting" key={folder}><Icon name="folder"/><span>{folder}</span><Button onClick={() => onChangeFolder(folder)}>Change…</Button><Button onClick={() => onRemoveFolder(folder)}>Remove</Button></div>) : <p className="muted">Add a library folder to find CBZ and CBR files, including subfolders.</p>}
         <p className="muted">Changing a folder is useful after moving the same collection and preserves matching reading history. Removing it clears its comics from this library. Original files are never modified.</p>
       </>}

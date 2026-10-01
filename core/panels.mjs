@@ -1,7 +1,9 @@
 import path from 'node:path';
 import sharp from 'sharp';
 import * as ort from 'onnxruntime-node';
-export const DETECTOR_VERSION = 'ensemble-2';
+import { boxPolygon, polygonBounds } from './panel-geometry.mjs';
+import { pageRaster, fusePanels, recoverLayout, layoutCoverage } from './panel-layout.mjs';
+export const DETECTOR_VERSION = 'ensemble-4-region-recovery';
 const clamp = (v, low = 0, high = 1) => Math.max(low, Math.min(high, v));
 export function intersection(a, b) {
   return Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
@@ -28,7 +30,14 @@ export function validatePanels(panels) {
     const xs = polygon.map(p => p[0]), ys = polygon.map(p => p[1]);
     const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(...xs) - x, h = Math.max(...ys) - y;
     if (w < 0.005 || h < 0.005) throw new Error('Panel is too small.');
-    return { x, y, w, h, polygon, confidence: 1, source: 'manual' };
+    if (p.protectedRegions !== undefined && (!Array.isArray(p.protectedRegions) || p.protectedRegions.length > 300)) throw new Error('Invalid dialogue regions.');
+    const protectedRegions = (p.protectedRegions ?? []).map(r => {
+      if (!r || ![r.x, r.y, r.w, r.h].every(Number.isFinite) || r.w <= 0 || r.h <= 0) throw new Error('Invalid dialogue region.');
+      const x = clamp(r.x), y = clamp(r.y);
+      return { x, y, w: clamp(r.x + r.w) - x, h: clamp(r.y + r.h) - y };
+    }).filter(r => r.w > 0 && r.h > 0);
+    const bounds = polygonBounds([...polygon, ...protectedRegions.flatMap(boxPolygon)]);
+    return { ...bounds, polygon, protectedRegions, confidence: 1, source: 'manual' };
   });
 }
 async function tensorFor(bytes, size, region) {
@@ -134,6 +143,18 @@ export class PanelDetector {
     }
     return suppressDuplicates(panels);
   }
+  async bubbles(bytes, region) {
+    const session = await this.session('speech-bubbles'), prep = await tensorFor(bytes, 800, region);
+    const output = await session.run({ [session.inputNames[0]]: prep.tensor });
+    const tensor = output[session.outputNames[0]], bubbles = [];
+    for (let i = 0; i < tensor.dims[1]; i++) {
+      const offset = i * 6, confidence = tensor.data[offset + 4];
+      if (confidence < .35) continue;
+      const p = box(...tensor.data.subarray(offset, offset + 4), confidence, prep, 'speech-bubble');
+      if (p.w > .005 && p.h > .005) bubbles.push(p);
+    }
+    return bubbles;
+  }
   async order(panels, direction) {
     if (panels.length < 2) return panels;
     const session = await this.session('panel-order');
@@ -156,36 +177,29 @@ export class PanelDetector {
       const tileHeight = Math.min(height, Math.round(width * 1.8)), step = Math.round(tileHeight * .8);
       for (let top = 0; top < height; top += step) { const y = Math.min(top, height - tileHeight); regions.push({ left: 0, top: y, width, height: tileHeight }); if (y + tileHeight === height) break; }
     } else regions.push(undefined);
-    let combined = [];
+    let combined = [], coverage = [];
     for (const region of regions) {
-      const western = await this.boxes(bytes, threshold, 640, region);
-      const detailed = await this.boxes(bytes, Math.max(threshold, .75), 960, region);
-      // Keep the training-resolution boxes as the authority. High-resolution
-      // predictions add small insets, but must not replace a reliable parent.
-      let panels = [...western];
-      for (const candidate of detailed) if (!panels.some(p => iou(p, candidate) > .45)) panels.push(candidate);
-      if (shapes) {
-        const segmented = await this.shapes(bytes, Math.max(threshold, .38), region);
-        for (const shape of segmented) {
-          const match = panels.map((p, i) => ({ p, i, overlap: iou(p, shape) })).sort((a, b) => b.overlap - a.overlap)[0];
-          if (match?.overlap > .5) { panels[match.i] = { ...match.p, polygon: shape.polygon, source: 'ensemble' }; }
-          else if (shape.confidence >= Math.max(threshold, .9) && !panels.some(p => intersection(p, shape) / Math.min(p.w * p.h, shape.w * shape.h) > .3)) panels.push(shape);
-        }
-      }
-      for (const p of panels) {
-        p.polygon ??= rectangle(p);
+      const western = await this.boxes(bytes, Math.min(threshold, .2), 640, region);
+      const detailed = await this.boxes(bytes, Math.min(threshold, .3), 960, region);
+      const segmented = shapes ? await this.shapes(bytes, Math.min(threshold, .25), region) : [];
+      const bubbles = await this.bubbles(bytes, region), raster = await pageRaster(bytes, region);
+      const candidates = fusePanels(western, detailed, segmented, bubbles, raster, threshold);
+      const safe = recoverLayout(candidates, bubbles, raster);
+      safe.panels = await this.order(safe.panels, direction);
+      coverage.push({ ...layoutCoverage(safe.panels, raster), recovered: safe.recovered });
+      for (const p of safe.panels) {
         if (region) {
           p.x = (region.left + p.x * region.width) / width; p.y = (region.top + p.y * region.height) / height;
           p.w *= region.width / width; p.h *= region.height / height;
           p.polygon = p.polygon.map(([x, y]) => [(region.left + x * region.width) / width, (region.top + y * region.height) / height]);
+          p.protectedRegions = p.protectedRegions?.map(b => ({ ...b, x: (region.left + b.x * region.width) / width, y: (region.top + b.y * region.height) / height, w: b.w * region.width / width, h: b.h * region.height / height }));
         }
       }
-      combined.push(...panels);
+      combined.push(...safe.panels);
     }
-    combined = suppressDuplicates(combined);
-    const fallback = combined.length <= 1;
-    if (fallback) combined = [{ x: 0, y: 0, w: 1, h: 1, polygon: [[0, 0], [1, 0], [1, 1], [0, 1]], confidence: 0, source: 'whole-page' }];
-    const ordered = regions.length > 1 ? combined.sort((a, b) => a.y - b.y || a.x - b.x) : await this.order(combined, direction);
-    return { width, height, panels: ordered, fallback, version: DETECTOR_VERSION, manual: false };
+    // Keep the per-tile order and remove repeated panels in overlapping tiles.
+    if (regions.length > 1) combined = combined.filter((p, i, all) => p.source === 'whole-page' || !all.slice(0, i).some(q => q.source !== 'whole-page' && iou(p, q) > .55));
+    const fallback = combined.length === 1;
+    return { width, height, panels: combined, fallback, coverage, version: DETECTOR_VERSION, manual: false };
   }
 }

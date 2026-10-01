@@ -1,6 +1,44 @@
 # Validation
 
-The reader was developed and tested on Windows on 2026-09-26–27. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
+The reader was developed and tested on Windows on 2026-09-26–28. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
+
+## 0.3.3 guided fitting, manga direction, and library focus
+
+All 27 unit tests and both Electron suites pass from source. The same 15 desktop scenarios and 13 navigation scenarios also pass against the packaged Windows application. Navigation is checked at 1000, 1280, and 1920 pixel widths, including Home entering Continue Reading, root-only sidebar folders, spatial movement from search and sort, backward issue transitions, and retaining the active panel when guided mode is toggled.
+
+The guided-fit regression uses one very wide and one very tall saved panel. It verifies that every edge of both frames remains inside the reading viewport, all page-fit controls are disabled while guided mode owns the camera, and W/H cannot alter the stored page fit until guided mode is closed. Manga mode is checked for reversed Left/Right panel and page turns, corresponding footer actions, and right-to-left ordering on an automatically detected four-panel page from the supplied Haikyu chapter 1 archive. The Haikyu dialogue-protection check still passes.
+
+`Panel-Reader-0.3.3-Windows-x64.exe` and `Panel-Reader-0.3.3-Linux-x64.tar.gz` were built. Release inspection matched 14 application files and all four model hashes in both unpacked targets, found the correct Windows and Linux native libraries, confirmed the Linux launcher is ELF x86-64, and verified executable modes for `panel-reader`, `chrome-sandbox`, and `chrome_crashpad_handler` in the tar archive.
+
+## 0.3.2 local region recovery and reading position
+
+The five supplied archives were fully decoded and processed again, including every page in both Superman issues and Young Justice. All **139 pages** completed without archive, decode, or inference errors. The final automatic layouts contain no `page-context` overview stops and never mix a whole-page fallback with close-ups. The detector now recovers uncovered local regions, expands clipped neighbours and margins, rejects nested props, and prevents inconsistent secondary boxes from swallowing established panels. A single whole-page stop remains appropriate for illustrations or insufficient panel evidence.
+
+| Archive | Pages tested | Lowest page coverage | Lowest artwork coverage |
+| --- | ---: | ---: | ---: |
+| Haikyu!! Color chapter 1 | 55 | 92.15% | 97.58% |
+| Haikyu!! Color chapter 295 | 16 | 91.68% | 98.30% |
+| Superman 006 (2016) | 25 | 97.70% | 98.08% |
+| Superman 015 (2017) | 20 | 97.59% | 97.84% |
+| Young Justice 06 (1999) | 23 | 96.77% | 99.99% |
+
+Coverage is the rasterized union of the reveal polygons and protected speech bubbles. Page coverage counts the entire canvas. The artwork measure excludes uniform near-white and near-black pixels while including contrasting edges; it is a content heuristic, not human-labelled semantic accuracy. Extending a frame into a margin is counted, overlapping frames are counted once, and no overview is included to inflate the metric. All final pages exceed 90% canvas coverage and 97% measured artwork coverage. Detection can still merge or over-segment complex borderless art, and rectangular automatic frames can include parts of neighbouring diagonal panels. No precision/recall claim is made.
+
+Numbered contact sheets for all pages were visually inspected during refinement. Additional concrete regressions include Superman 006 page 19's missing window scene (three stops), Superman 015 page 9's right-hand Aquaman region (three), Superman 015 page 14's fragmented table scene (five), Young Justice page 5's small portrait column (ten), page 13's false comic-cover detections (three), and page 17's false clock detection (seven). Page numbers include covers and advertisements. Ten reviewed page-count checks complement the coverage checks; these limited annotations are not a full ground-truth dataset.
+
+The final full-resolution report and contact sheets are in ignored `validation/region-recovery`; intermediate raw model outputs and previews are in `validation/candidates` and `validation/layout-review`. Inputs remain local and unchanged. Reproduce with a JSON array of local archive paths in `PANEL_READER_SAMPLES`, set `PANEL_READER_SAMPLE_OUTPUT=validation/region-recovery`, run `npm run test:samples`, then `node scripts/audit-panel-report.mjs`. The latter checks all 139 pages, disallows overview stops, and asserts the ten reviewed layouts. Cached previews accelerate iteration; the final reported measurements come from original archive images.
+
+All 27 unit tests pass. The packaged Windows application passes 25 desktop scenarios (15 reader tests and 10 navigation/position tests). The new regression selects panel four, switches through page width and height, verifies the viewport stays near that panel, reopens the comic, and confirms that changing pages resets the panel sequence. A real Haikyu chapter 1 page 33 speech bubble extending outside its panel is also verified inside both the camera frame and reveal mask. Automatic cache keys use `ensemble-4-region-recovery`; manual corrections are preserved.
+
+## 0.3.1 navigation and dialogue regression checks
+
+The five additional local archives were decoded and analyzed before and after the detector changes: Haikyu!! Color chapters 1 (55 pages) and 295 (16), Superman 006 (25) and 015 (20), and Young Justice 06 (23), for **139 pages**, with no archive, image-decode, or inference errors. Inputs remained local and unchanged. Reports and contact sheets are in the ignored `validation/before` and `validation/after` directories.
+
+Before the changes, 26 pages had less than 72% visible outline coverage. The updated pipeline recovers shape-model candidates such as the large top panel on Haikyu chapter 1, page 9, assigns detected speech bubbles to one panel, and includes their full rectangles in camera framing and the dimming mask. A whole-page overview precedes close-ups when the union of visible regions covers less than 72% of the page or 92% of non-white artwork. Single/tiny detections use a full-page fallback. These checks run independently for each tile on tall pages. All 139 resulting layouts exceed 72% page coverage; the lowest measured union coverage was 77.7%. This includes overview safeguards and **is not panel-detection accuracy**. Contact sheets were visually inspected, including the recovered Haikyu panel and previously missed Superman page areas. Borderless art, some captions, and ordering remain imperfect; no ground-truth precision/recall claim is made.
+
+The 21 unit tests include visible-union coverage (overlaps and concave outlines), bubble ownership and framing, preserving dialogue when saving/reordering outlines, Home child/leaf/empty roots, ten continuations, natural previous/next issues, and aligned spatial navigation. The separate Electron navigation suite checks matching Home counts, collection placement, ten continuation cards, keyboard movement at 1000/1280/1920px widths, Enter activation, first/last-page crossing in page and guided modes, and disabled/bounded transitions. Its additional real-page check uses Haikyu chapter 1, page 15 to verify a bubble extending below its panel stays inside the guided camera frame and undimmed mask. The existing 15 desktop scenarios cover the broader reader. All 24 desktop checks passed against the packaged Windows application, with isolated profiles and fixture libraries. The real-page screenshot is saved as `validation/ui-dialogue-protection.png`.
+
+The added 9.9 MB speech-bubble model is pinned to the same Poneglyph revision as the shape model and verified against the model author's SHA-256 contract. The detector cache version changes automatically; manual layouts continue to override automatic detection.
 
 ## Real archive checks
 

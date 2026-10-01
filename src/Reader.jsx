@@ -1,12 +1,15 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 const imageUrl = (id, page, suffix = 'image') => `comic://book/${id}/${page}/${suffix}`;
 export { imageUrl };
 export const Reader = forwardRef(function Reader({ book, page, info, panels, panel, settings, zoom, onPage, onOffset, onError }, forwarded) {
+  const maskId = useId();
   const viewport = useRef(), drag = useRef(), [size, setSize] = useState({ width: 1000, height: 700 });
   const guided = settings.mode === 'guided', webtoon = settings.mode === 'webtoon';
   const active = panels?.panels[Math.min(panel, panels.panels.length - 1)];
   const restoreOffset = useRef(book.progress?.offset ?? 0);
   const layoutKey = useRef('');
+  const pageAnchor = useRef(null), previousLayout = useRef(null);
+  const layoutScroll = useRef(null);
   const [webInfo, setWebInfo] = useState({});
   const webPosition = useRef({ page, offset: book.progress?.offset ?? 0 }), webTarget = useRef(null), webAnchor = useRef(null);
   function currentWebPosition() {
@@ -43,21 +46,31 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
   if (guided && active) {
     const padding = settings.panelPadding / 100;
     const fitW = availableW / (width * Math.min(1, active.w + padding * 2)), fitH = availableH / (height * Math.min(1, active.h + padding * 2));
-    scale = settings.panelFit === 'width' ? fitW : settings.panelFit === 'height' ? fitH : settings.panelFit === 'actual' ? 1 : Math.min(fitW, fitH);
+    // Guided reading always contains the complete active frame. Page-view
+    // width/height preferences must never crop a differently shaped panel.
+    scale = Math.min(fitW, fitH);
   }
   scale = Math.max(.01, Math.min(12, scale * zoom));
   const drawnW = width * scale, drawnH = height * scale, surfaceW = Math.max(size.width, drawnW + 32), surfaceH = Math.max(size.height, drawnH + 32);
   const left = (surfaceW - drawnW) / 2, top = (surfaceH - drawnH) / 2;
   useLayoutEffect(() => {
     if (webtoon || !info || !viewport.current) return;
+    if (guided && !active) return;
     const element = viewport.current;
     const key = `${book.id}:${page}:${settings.fit}:${guided}:${zoom}`;
     if (!guided && layoutKey.current === key) return;
     layoutKey.current = key;
-    if (guided && active) element.scrollTo({ left: left + (active.x + active.w / 2) * drawnW - size.width / 2, top: top + (active.y + active.h / 2) * drawnH - size.height / 2, behavior: 'instant' });
+    const samePage = previousLayout.current === `${book.id}:${page}`;
+    const anchor = guided ? { x: active.x + active.w / 2, y: active.y + active.h / 2 } : samePage ? pageAnchor.current : null;
+    if (anchor) element.scrollTo({ left: left + anchor.x * drawnW - size.width / 2, top: top + anchor.y * drawnH - size.height / 2, behavior: 'instant' });
     else element.scrollTo({ left: (surfaceW - size.width) / 2, top: restoreOffset.current * Math.max(0, surfaceH - size.height), behavior: 'instant' });
+    // A fit-height view clamps scrolling to zero. Its generated scroll event
+    // must not replace the remembered panel centre with the page centre.
+    pageAnchor.current = anchor;
+    layoutScroll.current = { left: element.scrollLeft, top: element.scrollTop };
+    previousLayout.current = `${book.id}:${page}`;
     restoreOffset.current = 0;
-  }, [book.id, page, panel, info, guided, webtoon, scale, size.width, size.height]);
+  }, [book.id, page, panel, info, panels, guided, webtoon, scale, size.width, size.height]);
   useLayoutEffect(() => {
     if (!webtoon) return;
     webTarget.current = { page, offset: book.progress?.offset ?? 0 };
@@ -74,7 +87,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
     webPosition.current = position;
     webAnchor.current = null;
     if (webInfo[position.page]) webTarget.current = null;
-  }, [webtoon, book.id, webInfo, size.width, settings.webtoonWidth, zoom]);
+  }, [webtoon, book.id, webInfo, size.width, settings.webtoonWidth, settings.fit, zoom]);
   const onScroll = () => {
     const element = viewport.current;
     if (webtoon) {
@@ -82,18 +95,24 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
       const position = currentWebPosition();
       webPosition.current = position;
       onPage(position.page); onOffset(position.offset);
-    } else onOffset(element.scrollTop / Math.max(1, element.scrollHeight - element.clientHeight));
+    } else {
+      onOffset(element.scrollTop / Math.max(1, element.scrollHeight - element.clientHeight));
+      const generated = layoutScroll.current && Math.abs(element.scrollLeft - layoutScroll.current.left) < 1 && Math.abs(element.scrollTop - layoutScroll.current.top) < 1;
+      if (!guided && !generated) pageAnchor.current = { x: (element.scrollLeft + size.width / 2 - left) / drawnW, y: (element.scrollTop + size.height / 2 - top) / drawnH };
+    }
   };
+  const webtoonBaseWidth = settings.fit === 'width' ? availableW : Math.min(availableW, settings.webtoonWidth);
+  const webtoonDrawWidth = Math.max(120, webtoonBaseWidth * zoom);
   return <div ref={viewport} className={`reading-viewport ${guided ? 'guided' : ''} ${webtoon ? 'webtoon' : ''}`} style={{ background: settings.background }} onScroll={onScroll}
     onPointerDown={event => { if (event.button !== 0 || webtoon) return; drag.current = { x: event.clientX, y: event.clientY, left: viewport.current.scrollLeft, top: viewport.current.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); }}
     onPointerMove={event => { if (drag.current) { viewport.current.scrollLeft = drag.current.left - event.clientX + drag.current.x; viewport.current.scrollTop = drag.current.top - event.clientY + drag.current.y; } }}
     onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
-    {webtoon ? <div className="webtoon-stack" style={{ width: Math.min(size.width, settings.webtoonWidth * zoom), gap: settings.webtoonGap }}>
-      {book.names.map((name, index) => <WebtoonPage key={`${book.id}-${index}`} id={book.id} page={index} name={name} root={viewport} width={Math.min(size.width, settings.webtoonWidth * zoom)} onInfo={value => receiveWebInfo(index, value)} onError={onError}/>)}
+    {webtoon ? <div className="webtoon-stack" style={{ width: webtoonDrawWidth, gap: settings.webtoonGap }}>
+      {book.names.map((name, index) => <WebtoonPage key={`${book.id}-${index}`} id={book.id} page={index} name={name} root={viewport} width={webtoonDrawWidth} onInfo={value => receiveWebInfo(index, value)} onError={onError}/>)}
     </div> : info ? <div className="page-surface" style={{ width: surfaceW, height: surfaceH }}>
       <div className="page-art" style={{ width: drawnW, height: drawnH, left, top }}>
         {Array.from({ length: info.tiles }, (_, i) => <img key={`${book.id}-${page}-${i}`} src={imageUrl(book.id, page, info.tiles > 1 ? `tile/${i}` : 'image')} alt={`${book.title}, page ${page + 1}${info.tiles > 1 ? `, strip ${i + 1}` : ''}`} draggable="false" style={{ width: drawnW, height: Math.min(info.tileHeight, height - i * info.tileHeight) * scale }} onError={() => onError('Could not decode this page. Try reopening the comic.')} />)}
-        {guided && active && <svg className="panel-shade" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><path d={`M0 0H1V1H0Z M${active.polygon.map(p => p.join(' ')).join('L')}Z`} fill="black" fillOpacity={settings.panelDim} fillRule="evenodd"/></svg>}
+        {guided && active && <svg className="panel-shade" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><defs><mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="1" height="1"><rect width="1" height="1" fill="white"/><polygon points={active.polygon.map(p => p.join(',')).join(' ')} fill="black"/>{active.protectedRegions?.map((r, i) => <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill="black"/>)}</mask></defs><rect width="1" height="1" fill="black" fillOpacity={settings.panelDim} mask={`url(#${maskId})`}/></svg>}
       </div>
     </div> : <div className="loading-page"><span className="spinner"/>Loading page…</div>}
   </div>;

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { COMIC_RE, naturalCompare } from './archive.mjs';
+import { COMIC_RE, IMAGE_RE, naturalCompare } from './archive.mjs';
 export const bookId = file => createHash('sha256').update(process.platform === 'win32' ? path.resolve(file).toLowerCase() : path.resolve(file)).digest('hex').slice(0, 24);
 const pathKey = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
 export async function scanFolders(folders, previous = []) {
@@ -25,7 +25,10 @@ export async function scanFolders(folders, previous = []) {
         catch (e) { errors.push({ path: file, message: e.message }); continue; }
       }
       if (directory) { await walk(file, root); continue; }
-      if (!regular || !COMIC_RE.test(entry.name)) continue;
+      // Standalone images can be complete long-form webtoon episodes, not just
+      // pages inside an archive. They are first-class books everywhere else in
+      // the app, so library scans need to discover them too.
+      if (!regular || (!COMIC_RE.test(entry.name) && !IMAGE_RE.test(entry.name))) continue;
       try {
         const stat = await fs.stat(file); const id = bookId(file); const before = old.get(id);
         if (books.has(id)) continue;

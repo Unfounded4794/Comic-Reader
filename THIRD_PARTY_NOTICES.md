@@ -1,12 +1,13 @@
 # Third-party notices
 
-Panel Reader is distributed under GNU AGPL v3. The complete application source and build instructions accompany the local release in `Panel-Reader-0.1.0-source.zip`.
+Panel Reader is distributed under GNU AGPL v3. The complete application source and build instructions accompany the local release in `Panel-Reader-0.3.1-source.zip`.
 
 ## Panel models
 
 - **Inkwell Western panel detector**, by cedarrapidsboy, derived from Ultralytics YOLOv8. AGPL-3.0. https://huggingface.co/cedarrapidsboy/inkwell-panel-models
 - **Inkwell panel reading-order model**, by cedarrapidsboy. MIT. The feature contract in `core/panels.mjs` follows the model author's published reference. The original reference is retained in `models/reference-order.py`.
 - **Poneglyph ReaderNet panel segmentation model**, by Remidesbois, based on Ultralytics YOLO11. AGPL-3.0. https://huggingface.co/Remidesbois/Poneglyph-ReaderNet
+- **Poneglyph ReaderNet speech-bubble detector**, by Remidesbois, based on Ultralytics YOLO26n. AGPL-3.0. https://huggingface.co/Remidesbois/Poneglyph-ReaderNet
 - **Ultralytics YOLO**, Copyright Ultralytics. AGPL-3.0. https://github.com/ultralytics/ultralytics
 
 Model revisions, byte sizes, and SHA-256 hashes are pinned in `models/manifest.json`. Full model cards are included with the application. Reported model-author metrics are not measurements of this app on the user's collection.

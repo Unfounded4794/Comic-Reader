@@ -10,6 +10,7 @@ const paths = {
   height: 'M4 3h16M4 21h16M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4',
   fit: 'M4 8V4h4M16 4h4v4M4 16v4h4M20 16v4h-4M8 8h8v8H8z',
   panels: 'M3 3h18v18H3zM3 11h18M13 3v8M10 11v10',
+  manga: 'M4 4h7v16H4zM13 4h7v16h-7zM17 9l-3 3 3 3M10 9l-3 3 3 3',
   webtoon: 'M6 2h12v8H6zM6 14h12v8H6z', search: 'M16 16l5 5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   plus: 'M12 4v16M4 12h16', minus: 'M4 12h16', edit: 'M4 16L16 4l4 4L8 20H4zM13 7l4 4',
   check: 'M4 12l5 5L20 6', arrow: 'M4 12h16M14 6l6 6-6 6', book: 'M3 4h7l2 2 2-2h7v16h-7l-2 1-2-1H3zM12 6v15',

@@ -28,26 +28,30 @@ page.on('pageerror', e => failures.push(e.message));
 app.process().stderr.on('data', data => { const text = data.toString(); if (/Error|error|uncaught/i.test(text)) console.log('Electron:', text.trim().slice(0, 1000)); });
 const dialogFiles = files => app.evaluate(({ dialog }, filePaths) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths }); }, files);
 const check = async (name, fn) => { await fn(); checks.push(name); console.log('PASS:', name); };
+const openBatmanFolder = async () => {
+  await page.locator('.folder-card').filter({ hasText: 'DC' }).click();
+  await page.locator('.folder-card').filter({ hasText: 'Batman' }).click();
+};
 try {
   await check('desktop launches with empty library', async () => { await expect(page.getByText('Your next story starts here.')).toBeVisible(); await page.screenshot({ path: 'validation/ui-empty.png' }); });
   await check('recursive scan preserves clickable nested folders and discovers new comics', async () => {
     await dialogFiles([library]); await page.locator('.library-top').getByRole('button', { name: 'Add library folder' }).click();
-    await expect(page.locator('.folder-card')).toHaveCount(1); await expect(page.locator('.book-card')).toHaveCount(0);
-    await page.locator('.folder-select').filter({ hasText: 'Batman' }).click(); await expect(page.locator('.book-card')).toHaveCount(2);
+    await expect(page.locator('.folder-card')).toHaveCount(1); await expect(page.locator('.book-card')).toHaveCount(1);
+    await openBatmanFolder(); await expect(page.locator('.book-card')).toHaveCount(2);
     await expect(page.locator('.library-title')).toContainText('Batman');
     await page.getByRole('button', { name: /Home/ }).first().click();
-    await zip(path.join(library, 'Fixture 2.cbz')); await page.keyboard.press('F5'); await page.locator('.folder-card').filter({ hasText: 'comics' }).click(); await expect(page.locator('.book-card')).toHaveCount(2);
+    await zip(path.join(library, 'Fixture 2.cbz')); await page.keyboard.press('F5'); await page.locator('.folder-select').filter({ hasText: 'comics' }).click(); await expect(page.locator('.book-card')).toHaveCount(2);
     await page.getByRole('button', { name: /Home/ }).first().click();
   });
   await check('series history queues the next issue', async () => {
-    await page.locator('.folder-select').filter({ hasText: 'Batman' }).click();
+    await openBatmanFolder();
     await page.locator('.book-card').filter({ hasText: 'Batman 035' }).click(); await expect(page.locator('.reader-title strong')).toContainText('Batman 035');
-    await page.keyboard.press('l'); await page.getByRole('button', { name: /Home/ }).first().click(); await expect(page.locator('.up-next')).toContainText('Batman 036'); await expect(page.locator('.up-next')).toContainText('After Batman 035');
+    await page.keyboard.press('l'); await page.getByRole('button', { name: /Home/ }).first().click(); await expect(page.locator('.up-next')).toContainText('Batman 035'); await expect(page.locator('.up-next')).toContainText('Page 1 of 3');
     await page.getByRole('button', { name: /History/ }).first().click(); await expect(page.locator('.book-card')).toHaveCount(1); await expect(page.locator('.book-card')).toContainText('Batman 035');
     await page.getByRole('button', { name: /Home/ }).first().click();
   });
   await check('Up and Down scroll within a page by the configured amount', async () => {
-    await page.locator('.folder-card').filter({ hasText: 'comics' }).click(); await page.locator('.book-card').first().click(); await expect(page.locator('.page-count')).toContainText('Page 1'); await page.keyboard.press('w');
+    await page.locator('.folder-select').filter({ hasText: 'comics' }).click(); await page.locator('.book-card').first().click(); await expect(page.locator('.page-count')).toContainText('Page 1'); await page.keyboard.press('w');
     await expect(page.locator('.page-art img')).toBeVisible(); await page.keyboard.press('ArrowDown');
     await expect.poll(() => page.locator('.reading-viewport').evaluate(e => Math.round(e.scrollTop))).toBe(160);
     await expect(page.locator('.page-count')).toContainText('Page 1'); await page.keyboard.press('ArrowUp');
@@ -71,7 +75,7 @@ try {
   await check('real CBZ opens and guided Next changes panel before page', async () => {
     await dialogFiles([samples[0]]); await page.keyboard.press('Control+o'); await expect(page.locator('.reader-title strong')).toContainText('Ben 10');
     await page.keyboard.press('g'); await page.getByLabel('Page number', { exact: true }).fill('5'); await page.getByRole('button', { name: 'Go to page', exact: true }).click();
-    await page.keyboard.press('p'); await expect(page.locator('.reader-status')).toContainText('panels detected', { timeout: 60000 });
+    await page.keyboard.press('p'); await expect(page.locator('.reader-status')).toContainText(/panels detected|Page overview/, { timeout: 60000 });
     await expect(page.locator('.page-count')).toContainText('Panel 1'); await page.keyboard.press('j'); await expect(page.locator('.page-count')).toContainText('Panel 2'); await expect(page.locator('.page-count')).toContainText('Page 5');
     await page.screenshot({ path:'validation/ui-guided.png' });
   });
@@ -104,6 +108,10 @@ try {
     await expect(page.locator('.webtoon-page')).toHaveCount(4); await expect(page.locator('.webtoon-page img').first()).toBeVisible();
     await page.keyboard.press('End'); await expect(page.locator('.page-count')).toContainText('Page 4');
     await expect(page.locator('.webtoon-page[data-page="3"] img')).toHaveCount(5); await expect.poll(() => page.locator('.webtoon-page[data-page="3"] img').first().evaluate(e => e.naturalHeight)).toBeGreaterThan(0);
+    await page.keyboard.press('w');
+    await expect.poll(() => page.evaluate(() => Math.round(document.querySelector('.webtoon-stack').getBoundingClientRect().width - (document.querySelector('.reading-viewport').clientWidth - 32)))).toBe(0);
+    await page.keyboard.press('h'); const heightFitOne = await page.locator('.webtoon-stack').evaluate(e => e.getBoundingClientRect().width);
+    await page.keyboard.press('h'); const heightFitTwo = await page.locator('.webtoon-stack').evaluate(e => e.getBoundingClientRect().width); expect(heightFitTwo).toBeLessThan(heightFitOne);
     await page.screenshot({ path:'validation/ui-webtoon.png' });
   });
   await check('webtoon position survives returning to library and switching reading modes', async () => {
@@ -111,7 +119,7 @@ try {
     const before = await page.locator('.reading-viewport').evaluate(e => e.scrollTop);
     await page.keyboard.press('l'); await expect(page.locator('.library-main')).toBeVisible();
     await page.getByRole('button', { name: /Home/ }).first().click();
-    await expect(page.locator('.resume-card')).toContainText('Page 4');
+    await expect(page.locator('.up-next')).toContainText('Page 4');
     await page.keyboard.press('l'); await expect(page.locator('.page-count')).toContainText('Page 4');
     await expect.poll(() => page.locator('.reading-viewport').evaluate(e => e.scrollTop)).toBeGreaterThan(0);
     await page.keyboard.press('t'); await expect(page.locator('.page-art img')).toHaveCount(5);

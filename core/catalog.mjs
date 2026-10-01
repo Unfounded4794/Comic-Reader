@@ -64,6 +64,27 @@ export function readingHistory(books) {
   return books.filter(book => book.lastRead && !book.missing).sort((a, b) => b.lastRead - a.lastRead);
 }
 
+// Home shows the contents of all library sources as one collection. A source
+// with subfolders contributes those first-level folders; a source that is
+// already a series remains visible so its directly-contained books are not
+// stranded in the sidebar.
+export function homeCollections(trees) {
+  return trees.flatMap(root => root.children.length ? root.children : [root]);
+}
+
+export function homeBooks(trees, books) {
+  const expandedRoots = new Set(trees.filter(root => root.children.length).map(root => root.key));
+  return books.filter(book => !book.root || (expandedRoots.has(folderKey(book.root)) && !book.relativeDir));
+}
+
+export function adjacentComic(books, current, delta) {
+  if (!current) return null;
+  const series = folderKey(current.folder || current.path?.replace(/[\\/][^\\/]+$/, '') || current.root);
+  const issues = books.filter(book => !book.missing && folderKey(book.folder || book.path?.replace(/[\\/][^\\/]+$/, '') || book.root) === series).sort(naturalTitle);
+  const index = issues.findIndex(book => book.id === current.id);
+  return index < 0 ? null : issues[index + delta] ?? null;
+}
+
 export function seriesContinuations(books) {
   const groups = new Map();
   for (const book of books.filter(book => !book.missing)) {
@@ -76,9 +97,12 @@ export function seriesContinuations(books) {
     issues.sort(naturalTitle);
     const read = issues.map((issue, index) => ({ issue, index })).filter(({ issue }) => issue.lastRead);
     if (!read.length) continue;
-    const furthest = read.reduce((best, value) => value.index > best.index ? value : best);
-    const next = issues.slice(furthest.index + 1).find(issue => !issue.lastRead);
-    if (next) result.push({ series: folderName(next.folder || next.root), previous: furthest.issue, next, lastRead: Math.max(...read.map(value => value.issue.lastRead)) });
+    const recent = read.reduce((best, value) => value.issue.lastRead > best.issue.lastRead ? value : best);
+    const progress = recent.issue.progress;
+    const unfinished = !progress || !recent.issue.pageCount || progress.page < recent.issue.pageCount - 1 || (recent.issue.pageCount === 1 && (progress.offset ?? 0) < .98);
+    const nextUnread = issues.slice(recent.index + 1).find(issue => !issue.lastRead);
+    const next = unfinished || !nextUnread ? recent.issue : nextUnread;
+    result.push({ series: folderName(next.folder || next.root), previous: recent.issue, next, resume: next.id === recent.issue.id, lastRead: recent.issue.lastRead });
   }
   return result.sort((a, b) => b.lastRead - a.lastRead);
 }

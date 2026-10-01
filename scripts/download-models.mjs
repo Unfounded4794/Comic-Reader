@@ -7,6 +7,7 @@ const models = [
   { file: 'western-panels.onnx', repo: 'cedarrapidsboy/inkwell-panel-models', revision: 'fa7afba', remote: 'best.onnx', license: 'AGPL-3.0' },
   { file: 'panel-order.onnx', repo: 'cedarrapidsboy/inkwell-panel-models', revision: 'fa7afba', remote: 'panel-order-model.onnx', license: 'MIT' },
   { file: 'panel-shapes.onnx', repo: 'Remidesbois/Poneglyph-ReaderNet', revision: 'd97d4cd', remote: 'panel_detector.onnx', license: 'AGPL-3.0' },
+  { file: 'speech-bubbles.onnx', repo: 'Remidesbois/Poneglyph-ReaderNet', revision: 'd97d4cd', remote: 'bubble_detector.onnx', license: 'AGPL-3.0' },
 ];
 let lock = [];
 try { lock = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8')); } catch {}
