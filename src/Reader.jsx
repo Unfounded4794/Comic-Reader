@@ -10,6 +10,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
   const layoutKey = useRef('');
   const pageAnchor = useRef(null), previousLayout = useRef(null);
   const layoutScroll = useRef(null);
+  const previousGuided = useRef(false);
   const [webInfo, setWebInfo] = useState({});
   const webPosition = useRef({ page, offset: book.progress?.offset ?? 0 }), webTarget = useRef(null), webAnchor = useRef(null);
   function currentWebPosition() {
@@ -30,6 +31,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
   }, []);
   useImperativeHandle(forwarded, () => ({
     scroll(dx, dy) { viewport.current?.scrollBy({ left: dx, top: dy, behavior: settings.smoothScroll ? 'smooth' : 'instant' }); },
+    position() { return webtoon ? currentWebPosition() : { page, offset: 0 }; },
     goToPage(target) {
       if (webtoon) {
         webTarget.current = { page: target, offset: 0 };
@@ -39,7 +41,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
         if (webInfo[target]) webTarget.current = null;
       }
     },
-  }), [settings.smoothScroll, webtoon, webInfo]);
+  }), [settings.smoothScroll, webtoon, webInfo, page]);
   const width = info?.width ?? 1, height = info?.height ?? 1;
   const availableW = Math.max(1, size.width - 32), availableH = Math.max(1, size.height - 32);
   let scale = settings.fit === 'width' ? availableW / width : settings.fit === 'height' ? availableH / height : settings.fit === 'actual' ? 1 : Math.min(availableW / width, availableH / height);
@@ -60,10 +62,12 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
     const key = `${book.id}:${page}:${settings.fit}:${guided}:${zoom}`;
     if (!guided && layoutKey.current === key) return;
     layoutKey.current = key;
+    const leavingGuided = previousGuided.current && !guided;
+    previousGuided.current = guided;
     const samePage = previousLayout.current === `${book.id}:${page}`;
-    const anchor = guided ? { x: active.x + active.w / 2, y: active.y + active.h / 2 } : samePage ? pageAnchor.current : null;
+    const anchor = guided ? { x: active.x + active.w / 2, y: active.y + active.h / 2 } : !leavingGuided && samePage ? pageAnchor.current : null;
     if (anchor) element.scrollTo({ left: left + anchor.x * drawnW - size.width / 2, top: top + anchor.y * drawnH - size.height / 2, behavior: 'instant' });
-    else element.scrollTo({ left: (surfaceW - size.width) / 2, top: restoreOffset.current * Math.max(0, surfaceH - size.height), behavior: 'instant' });
+    else element.scrollTo({ left: (surfaceW - size.width) / 2, top: leavingGuided ? 0 : restoreOffset.current * Math.max(0, surfaceH - size.height), behavior: 'instant' });
     // A fit-height view clamps scrolling to zero. Its generated scroll event
     // must not replace the remembered panel centre with the page centre.
     pageAnchor.current = anchor;

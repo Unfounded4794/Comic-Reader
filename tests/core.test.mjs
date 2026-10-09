@@ -10,7 +10,7 @@ import { openArchive, isImage, naturalCompare } from '../core/archive.mjs';
 import { scanFolders } from '../core/library.mjs';
 import { booksInFolder, directBooksInFolder, findFolderNode, folderTree, homeCollections, readingHistory, seriesContinuations } from '../core/catalog.mjs';
 import { DEFAULT_SETTINGS, ACTIONS, normalizeSettings, keyChord } from '../core/settings.mjs';
-import { suppressDuplicates, validatePanels, orderFeatures } from '../core/panels.mjs';
+import { suppressDuplicates, mergeTilePanels, validatePanels, orderFeatures } from '../core/panels.mjs';
 async function temporary(t) { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'panel-reader-test-')); t.after(() => fs.rm(dir, { recursive: true, force: true })); return dir; }
 test('CBZ reads actual entries in natural order, skipping metadata; disguised extensions work', async t => {
   const dir = await temporary(t), file = path.join(dir, 'issue.cbr'), zip = new yazl.ZipFile();
@@ -95,6 +95,17 @@ test('duplicate suppression preserves inset panels and rejects duplicate detecti
   const inset = { x: .6, y: .5, w: .25, h: .25, confidence: .8 };
   const results = suppressDuplicates([parent, inset, { ...inset, x: .601, confidence: .7 }]);
   assert.equal(results.length, 2); assert.ok(results.includes(inset));
+});
+test('overlapping webtoon tiles prefer a complete panel over clipped seam fragments', () => {
+  const complete = { x: .02, y: .31, w: .43, h: .14, confidence: .95 };
+  const clipped = { x: 0, y: .33, w: .55, h: .06, confidence: .98 };
+  const inset = { x: .2, y: .36, w: .12, h: .05, confidence: .9 };
+  const merged = mergeTilePanels([
+    { panel: clipped, tile: 0, start: 0, end: .39 },
+    { panel: complete, tile: 1, start: .31, end: .7 },
+    { panel: inset, tile: 1, start: .31, end: .7 },
+  ]);
+  assert.deepEqual(merged, [complete, inset]);
 });
 test('manual polygons retain concavity and validate coordinates', () => {
   const polygon = [[0,0],[.8,.1],[.9,.7],[.4,.5],[.1,.9]];

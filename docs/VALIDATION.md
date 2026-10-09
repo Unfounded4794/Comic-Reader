@@ -1,6 +1,14 @@
 # Validation
 
-The reader was developed and tested on Windows on 2026-09-26–28. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
+The reader was developed and tested on Windows on 2026-09-26–28 and 2026-10-01. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
+
+## 0.3.4 webtoon panel handoff and platform packages
+
+All 28 unit tests, 13 navigation scenarios, and 15 desktop scenarios passed on Windows. Both Electron suites also passed against the unpacked Windows build. The navigation regression confirms that leaving guided mode starts page view at the top while re-entering guided mode retains the selected panel. It also checks that entering guided mode from a scrolled continuous image selects the nearby panel. The desktop suite checks the new 125% and 100% webtoon zoom steps.
+
+A 3,696-pixel stitched image made from three local comic pages produced detected panels in guided mode. Cross-tile seam merging reduced 26 stops to 20 by removing clipped duplicate detections; this is a focused sample, not an accuracy claim for all webtoons. Panels split between separate source images are not joined. The Windows portable launcher exceeded Playwright's 60-second startup timeout during a direct test; the unpacked Windows app passed both suites.
+
+`Panel-Reader-0.3.4-Windows-x64.exe` and `Panel-Reader-0.3.4-Linux-x64.tar.gz` were built. Release inspection matched 14 application files and all four model hashes in both unpacked targets, found the target native libraries, confirmed the Linux launcher is ELF x86-64, and verified the three Linux executable modes in the tar archive. The Apple Silicon macOS target is configured but electron-builder 26 requires a Mac host to build it; no Mac artifact or runtime test is claimed.
 
 ## 0.3.3 guided fitting, manga direction, and library focus
 

@@ -53,7 +53,7 @@ export default function App() {
   const [search, setSearch] = useState(''), [sort, setSort] = useState('title'), [section, setSection] = useState('all'), [selectedFolder, setSelectedFolder] = useState(null), [zoom, setZoom] = useState(1);
   const [folderPending, setFolderPending] = useState(null);
   const [busy, setBusy] = useState(''), [detecting, setDetecting] = useState(false), [toast, setToast] = useState(null), [goto, setGoto] = useState('1'), [dragging, setDragging] = useState(false);
-  const reader = useRef(), editor = useRef(), searchInput = useRef(), offset = useRef(0), openSerial = useRef(0), detectionSerial = useRef(0), toastTimer = useRef(), settingsSerial = useRef(0), latest = useRef(), lastSaved = useRef('');
+  const reader = useRef(), editor = useRef(), searchInput = useRef(), offset = useRef(0), openSerial = useRef(0), detectionSerial = useRef(0), toastTimer = useRef(), settingsSerial = useRef(0), latest = useRef(), lastSaved = useRef(''), guidedEntry = useRef(null);
   const notify = useCallback((message, error = false) => { setToast({ message: String(message), error }); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), error ? 10000 : 4500); }, []);
   const update = useCallback(next => {
     setSettings(next); const id = ++settingsSerial.current;
@@ -70,6 +70,7 @@ export default function App() {
   };
   const openBook = useCallback(async (id, entry = 'resume') => {
     const request = ++openSerial.current; await persistPosition(); setBusy('Opening comic…');
+    guidedEntry.current = null;
     try {
       const next = await window.reader.open(id); if (request !== openSerial.current) return;
       if (next.suggestedWebtoon && settings.mode !== 'webtoon') update({ ...settings, mode: 'webtoon' });
@@ -98,7 +99,13 @@ export default function App() {
     try {
       const result = await window.reader.panels(book.id, page, force);
       if (token !== detectionSerial.current) return;
-      setPanels(result); setPanel(p => p === Infinity ? result.panels.length - 1 : Math.min(p, result.panels.length - 1));
+      setPanels(result);
+      const entry = guidedEntry.current;
+      if (entry?.book === book.id && entry.page === page) {
+        guidedEntry.current = null;
+        const next = result.panels.findIndex(p => p.y + p.h >= entry.offset);
+        setPanel(next < 0 ? result.panels.length - 1 : next);
+      } else setPanel(p => p === Infinity ? result.panels.length - 1 : Math.min(p, result.panels.length - 1));
     } catch (e) { if (token === detectionSerial.current) notify(e.message, true); }
     finally { if (token === detectionSerial.current) setDetecting(false); }
   }, [book?.id, page, settings.detectionThreshold, settings.shapeDetection, settings.direction]);
@@ -141,12 +148,17 @@ export default function App() {
   };
   const choose = async kind => { try { const values = await window.reader[kind](); if (values?.length) openBook(values[0].id); } catch (e) { notify(e.message, true); } };
   const scan = async add => { setBusy(add ? 'Finding comics…' : 'Rescanning library…'); try { const result = await window.reader[add ? 'chooseFolder' : 'rescan'](); if (result) notify(`${result.added} new comic${result.added === 1 ? '' : 's'} found.${result.errors.length ? ` ${result.errors.length} folder/file(s) unavailable.` : ''}`, result.errors.length > 0); } catch (e) { notify(e.message, true); } finally { setBusy(''); } };
-  const setMode = mode => { update({ ...settings, mode }); setZoom(1); };
+  const setMode = mode => {
+    const position = reader.current?.position();
+    guidedEntry.current = settings.mode === 'webtoon' && mode === 'guided' && book ? { book: book.id, page: position?.page ?? page, offset: position?.offset ?? offset.current } : null;
+    if (guidedEntry.current && guidedEntry.current.page !== page) setPage(guidedEntry.current.page);
+    update({ ...settings, mode }); setZoom(1);
+  };
   const setFit = fit => {
     if (settings.mode === 'guided') return;
     update({ ...settings, fit });
     if (settings.mode === 'webtoon' && fit === 'height') {
-      const steps = [.75, .5, .33];
+      const steps = [1.25, 1, .75, .5, .33];
       setZoom(current => settings.fit !== 'height' ? steps[0] : steps.find(value => value < current - .02) ?? steps[0]);
     } else setZoom(1);
   };

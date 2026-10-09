@@ -3,12 +3,25 @@ import sharp from 'sharp';
 import * as ort from 'onnxruntime-node';
 import { boxPolygon, polygonBounds } from './panel-geometry.mjs';
 import { pageRaster, fusePanels, recoverLayout, layoutCoverage } from './panel-layout.mjs';
-export const DETECTOR_VERSION = 'ensemble-4-region-recovery';
+export const DETECTOR_VERSION = 'ensemble-5-tile-merge';
 const clamp = (v, low = 0, high = 1) => Math.max(low, Math.min(high, v));
 export function intersection(a, b) {
   return Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 }
 export function iou(a, b) { const shared = intersection(a, b); return shared / Math.max(1e-9, a.w * a.h + b.w * b.h - shared); }
+export function mergeTilePanels(entries) {
+  const area = p => p.w * p.h;
+  return entries.filter(({ panel: p, tile, start, end }, i) => !entries.some(({ panel: q, tile: other }, j) => {
+    if (tile === other) return false;
+    const duplicate = iou(p, q) > .55;
+    if (duplicate) {
+      const pScore = area(p) * (.8 + .2 * p.confidence), qScore = area(q) * (.8 + .2 * q.confidence);
+      return qScore > pScore + 1e-9 || Math.abs(qScore - pScore) < 1e-9 && j < i;
+    }
+    const clipped = Math.abs(p.y - start) < .008 || Math.abs(p.y + p.h - end) < .008;
+    return clipped && area(q) > area(p) * 1.35 && intersection(p, q) / area(p) > .72;
+  })).map(entry => entry.panel);
+}
 export function suppressDuplicates(panels, threshold = 0.55) {
   const kept = [];
   for (const p of [...panels].sort((a, b) => b.confidence - a.confidence)) {
@@ -178,7 +191,7 @@ export class PanelDetector {
       for (let top = 0; top < height; top += step) { const y = Math.min(top, height - tileHeight); regions.push({ left: 0, top: y, width, height: tileHeight }); if (y + tileHeight === height) break; }
     } else regions.push(undefined);
     let combined = [], coverage = [];
-    for (const region of regions) {
+    for (const [tile, region] of regions.entries()) {
       const western = await this.boxes(bytes, Math.min(threshold, .2), 640, region);
       const detailed = await this.boxes(bytes, Math.min(threshold, .3), 960, region);
       const segmented = shapes ? await this.shapes(bytes, Math.min(threshold, .25), region) : [];
@@ -195,10 +208,19 @@ export class PanelDetector {
           p.protectedRegions = p.protectedRegions?.map(b => ({ ...b, x: (region.left + b.x * region.width) / width, y: (region.top + b.y * region.height) / height, w: b.w * region.width / width, h: b.h * region.height / height }));
         }
       }
-      combined.push(...safe.panels);
+      combined.push(...safe.panels.map(panel => ({ panel, tile, start: region ? region.top / height : 0, end: region ? (region.top + region.height) / height : 1 })));
     }
-    // Keep the per-tile order and remove repeated panels in overlapping tiles.
-    if (regions.length > 1) combined = combined.filter((p, i, all) => p.source === 'whole-page' || !all.slice(0, i).some(q => q.source !== 'whole-page' && iou(p, q) > .55));
+    if (regions.length > 1) {
+      if (combined.every(({ panel }) => panel.source === 'whole-page')) {
+        combined = [{ panel: { x: 0, y: 0, w: 1, h: 1, polygon: rectangle({ x: 0, y: 0, w: 1, h: 1 }), confidence: 0, source: 'whole-page' }, tile: 0, start: 0, end: 1 }];
+      } else {
+        // A tile with no detections remains a local reading stop, while the
+        // neighbouring tiles keep their detected frames.
+        for (const entry of combined) if (entry.panel.source === 'whole-page') entry.panel.source = 'recovered-region';
+        combined = mergeTilePanels(combined).map(panel => ({ panel }));
+      }
+    }
+    combined = combined.map(entry => entry.panel);
     const fallback = combined.length === 1;
     return { width, height, panels: combined, fallback, coverage, version: DETECTOR_VERSION, manual: false };
   }

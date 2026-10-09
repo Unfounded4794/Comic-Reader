@@ -1,12 +1,14 @@
 # Panel Reader
 
-A standalone, offline comic reader for Windows and Linux (including CachyOS). No account, comic server, Python installation, GPU, or separate UnRAR installation is required by the packaged app.
+A standalone, offline comic reader for Windows and Linux (including CachyOS), with an Apple Silicon macOS build target. No account, comic server, Python installation, GPU, or separate UnRAR installation is required by the packaged app.
 
 ## Run the packaged app
 
-**Windows x64:** run `Panel-Reader-0.3.3-Windows-x64.exe`. This is a portable launcher: it extracts the bundled application temporarily and keeps your library/settings under `%APPDATA%/Panel Reader`. The build is unsigned.
+**Windows x64:** run `Panel-Reader-0.3.4-Windows-x64.exe`. This is a portable launcher: it extracts the bundled application temporarily and keeps your library/settings under `%APPDATA%/Panel Reader`. The build is unsigned.
 
-**CachyOS / Linux x64:** extract `Panel-Reader-0.3.3-Linux-x64.tar.gz`, open the extracted folder, and run `./panel-reader`. Executable permissions are included and verified in the archive. If your extraction tool discards them, run `chmod +x panel-reader chrome-sandbox chrome_crashpad_handler`. A normal graphical desktop with glibc, GTK 3, NSS, ALSA and GBM is needed; these are normally present on a desktop CachyOS installation. The tar distribution does not need FUSE. Linux packages are cross-built; this development machine has not run the application on CachyOS.
+**CachyOS / Linux x64:** extract `Panel-Reader-0.3.4-Linux-x64.tar.gz`, open the extracted folder, and run `./panel-reader`. Executable permissions are included and verified in the archive. If your extraction tool discards them, run `chmod +x panel-reader chrome-sandbox chrome_crashpad_handler`. A normal graphical desktop with glibc, GTK 3, NSS, ALSA and GBM is needed; these are normally present on a desktop CachyOS installation. The tar distribution does not need FUSE. Linux packages are cross-built; this development machine has not run the application on CachyOS.
+
+**Apple Silicon macOS:** run `npm ci`, `npm run models`, and `npm run pack:mac` on a Mac to create `Panel-Reader-0.3.4-macOS-arm64.zip`. The macOS target is configured for native ARM64 Electron, Sharp, and ONNX Runtime binaries. It uses an ad hoc signature for a local build and is not notarized. It has not been built or run on a Mac yet; this Windows machine cannot produce a macOS package with electron-builder.
 
 On Linux, preferences and cached panel layouts live in `~/.config/Panel Reader`. `PANEL_READER_DATA` can override the data directory, useful for tests or a portable profile. The comics themselves stay wherever you selected them.
 
@@ -46,7 +48,7 @@ The local pipeline combines an Inkwell YOLOv8 detector at two resolutions, a Pon
 
 Coverage measures the union of the actual visible regions. Missing artwork is recovered locally, clipped neighbours expand, and narrow gutters and outside margins join their adjacent frames. The recovery target is 90% page coverage and 97% artwork coverage; this is a heuristic, not a guarantee for every comic. No full-page overview is added before close-ups. A single whole-page stop is used for illustrations or when there is insufficient evidence to identify panels. Recognized speech bubbles are assigned to the panel containing the largest share, with insets breaking ties, and remain inside both the camera frame and reveal mask. Long pages apply the pipeline to overlapping tiles. Automatic cached layouts refresh for this detector version; saved manual corrections remain intact. Detection is not OCR, and unusual borderless layouts can still need correction.
 
-Switching guided mode off and back on keeps the selected panel on the same page. Width/height fit changes preserve the reading anchor; navigating to a different page starts its own panel sequence.
+Switching guided mode off and back on keeps the selected panel on the same page. Returning to page view starts at the top; width/height fit changes within page view preserve the reading anchor. Navigating to a different page starts its own panel sequence.
 
 The reader centers and scales the active panel, dims the surroundings, and changes **Next** to advance through the panels before advancing the page. Adjust confidence, surrounding dimness and padding in preferences. Left-to-right and right-to-left ordering are available.
 
@@ -58,7 +60,7 @@ Saved corrections override detection on that page. They do not currently retrain
 
 ## Webtoons
 
-Continuous mode stacks images without gaps by default. Set the column width and image gap in preferences. It accepts ordinary multi-image archives, image folders, and stitched tall images. Images taller than 4,096 pixels are served as strips; pages far from the viewport are unloaded. Up/Down scroll normally, while Next/Previous jump to the next/previous image. There is no automatic panel stepping in webtoon mode; switch to Guided panels for that.
+Continuous mode stacks images without gaps by default. Set the column width and image gap in preferences. It accepts ordinary multi-image archives, image folders, and stitched tall images. Images taller than 4,096 pixels are served as strips; pages far from the viewport are unloaded. Up/Down scroll normally, while Next/Previous jump to the next/previous image. The height control cycles through 125%, 100%, 75%, 50%, and 33% column zoom. Switch to Guided panels to detect and step through panels on a stitched image; it opens near your current scroll position. Overlapping detection tiles are merged at their seams. Panels cut across two separate image files are not joined automatically.
 
 ## Development and builds
 
@@ -72,9 +74,10 @@ npm run dev          # Vite UI with the Electron shell
 npm test
 npm run pack:win     # build on Windows
 npm run pack:linux   # AppImage + tar.gz on Linux
+npm run pack:mac     # ad hoc signed Apple Silicon ZIP on macOS
 ```
 
-Use `npm run pack:linux:tar` for a tar-only build. Cross-building from Windows requires the target-platform sharp packages: `npm install --no-save --force @img/sharp-linux-x64@0.35.4 @img/sharp-libvips-linux-x64@1.3.3`. Native ONNX Runtime binaries for both targets ship with its npm package. Build tools and model downloads need network access; the finished reader does not.
+Use `npm run pack:linux:tar` for a tar-only build. Cross-building from Windows requires the target-platform sharp packages: `npm install --no-save --force @img/sharp-linux-x64@0.35.4 @img/sharp-libvips-linux-x64@1.3.3`. Native ONNX Runtime binaries ship with its npm package for Windows, Linux, and macOS ARM64; Sharp installs the matching optional package on each native build host. Build tools and model downloads need network access; the finished reader does not.
 
 `npm run test:samples` fully decodes and detects each page in local sample archives and produces diagnostic overlays. Provide a JSON array of absolute archive paths through `PANEL_READER_SAMPLES`, or save it to the ignored `validation/sample-paths.json`. Set `PANEL_READER_SAMPLE_OUTPUT` to keep before/after reports in separate folders. `npm run test:navigation` checks Home, ten continuations, spatial keys at three window widths, and both chapter boundaries. `npm run test:desktop` drives the built Electron app with temporary settings and synthetic fixtures plus those sample archives. `npm run pack:source` creates a source ZIP, including model weights and licenses, excluding comics, test outputs and personal paths.
 

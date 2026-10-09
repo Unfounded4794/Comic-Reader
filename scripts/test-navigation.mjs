@@ -127,7 +127,7 @@ try {
     await expect(page.getByRole('status')).toContainText('first comic in this series');
     await expect(page.locator('.reader-title strong')).toHaveText('Issue 14');
   });
-  await check('panel four survives width/height view, reopening, and resets only on a page change', async () => {
+  await check('panel four survives view changes while returning to page view starts at the top', async () => {
     const current = books.find(book => book.relativeDir === 'Series 01' && book.title === 'Issue 14');
     await page.evaluate(async id => {
       await window.reader.savePanels(id, 1, Array.from({ length: 4 }, (_, i) => ({ polygon: [[0, i / 4], [1, i / 4], [1, (i + 1) / 4], [0, (i + 1) / 4]] })));
@@ -138,7 +138,7 @@ try {
     for (const fit of ['w', 'h']) {
       await page.keyboard.press('p'); await page.keyboard.press(fit);
       await expect(page.locator('.reader-title span')).toContainText('Page view');
-      if (fit === 'w') await expect.poll(() => page.locator('.reading-viewport').evaluate(el => el.scrollTop / (el.scrollHeight - el.clientHeight))).toBeGreaterThan(.7);
+      await expect.poll(() => page.locator('.reading-viewport').evaluate(el => el.scrollTop)).toBe(0);
       await page.keyboard.press('p');
       await expect(page.locator('.page-count')).toContainText('Page 2 / 3');
       await expect(page.locator('.page-count')).toContainText('Panel 4 / 4');
@@ -201,6 +201,19 @@ try {
     await page.keyboard.press('ArrowRight'); await expect(page.locator('.page-count')).toContainText('Page 2 / 3');
     await page.getByRole('button', { name: 'Switch left-to-right / right-to-left', exact: true }).click();
     await expect(page.locator('.reader-title span')).not.toContainText('Manga');
+  });
+  await check('guided panels open near the current position in a continuous image', async () => {
+    const current = books.find(book => book.relativeDir === 'Series 01' && book.title === 'Issue 14');
+    await page.evaluate(async id => window.reader.savePanels(id, 1, Array.from({ length: 4 }, (_, i) => ({ polygon: [[0, i / 4], [1, i / 4], [1, (i + 1) / 4], [0, (i + 1) / 4]] }))), current.id);
+    await page.keyboard.press('t');
+    await expect(page.locator('.webtoon-page[data-page="1"] img')).toHaveCount(1);
+    await page.locator('.reading-viewport').evaluate(el => {
+      const image = el.querySelector('[data-page="1"]');
+      el.scrollTop = image.offsetTop + image.offsetHeight * .6;
+    });
+    await expect(page.locator('.page-count')).toContainText('Page 2 / 3');
+    await page.keyboard.press('p');
+    await expect(page.locator('.page-count')).toContainText('Panel 3 / 4');
   });
   if (process.env.PANEL_READER_PANEL_SAMPLE) await check('real dialogue extending past an outline remains in the guided frame and reveal mask', async () => {
     await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, process.env.PANEL_READER_PANEL_SAMPLE);

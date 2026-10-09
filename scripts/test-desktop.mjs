@@ -111,7 +111,9 @@ try {
     await page.keyboard.press('w');
     await expect.poll(() => page.evaluate(() => Math.round(document.querySelector('.webtoon-stack').getBoundingClientRect().width - (document.querySelector('.reading-viewport').clientWidth - 32)))).toBe(0);
     await page.keyboard.press('h'); const heightFitOne = await page.locator('.webtoon-stack').evaluate(e => e.getBoundingClientRect().width);
+    await expect(page.locator('.zoom-tools')).toContainText('125%');
     await page.keyboard.press('h'); const heightFitTwo = await page.locator('.webtoon-stack').evaluate(e => e.getBoundingClientRect().width); expect(heightFitTwo).toBeLessThan(heightFitOne);
+    await expect(page.locator('.zoom-tools')).toContainText('100%');
     await page.screenshot({ path:'validation/ui-webtoon.png' });
   });
   await check('webtoon position survives returning to library and switching reading modes', async () => {

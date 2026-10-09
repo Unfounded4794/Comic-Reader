@@ -1,7 +1,7 @@
 {
   "name": "panel-reader",
   "productName": "Panel Reader",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "An offline comic reader with guided panels and continuous webtoon reading.",
   "author": "Panel Reader contributors",
   "license": "AGPL-3.0-only",
@@ -19,6 +19,7 @@
     "pack:win": "npm run build && electron-builder --config electron-builder.config.cjs --win portable --x64",
     "pack:linux": "npm run build && electron-builder --config electron-builder.config.cjs --linux AppImage tar.gz --x64",
     "pack:linux:tar": "npm run build && electron-builder --config electron-builder.config.cjs --linux --dir --x64 && node scripts/linux-tar.mjs",
+    "pack:mac": "npm run build && electron-builder --config electron-builder.config.cjs --mac zip --arm64",
     "pack:source": "node scripts/source-release.mjs"
   },
   "dependencies": {
@@ -40,14 +41,71 @@
   "build": {
     "appId": "org.panelreader.desktop",
     "productName": "Panel Reader",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*", "core/**/*", "package.json", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-    "extraResources": [{ "from": "models", "to": "models", "filter": ["*.onnx", "*.json", "*.md"] }],
-    "extraFiles": [{ "from": "README.md", "to": "README.md" }, { "from": "THIRD_PARTY_NOTICES.md", "to": "THIRD_PARTY_NOTICES.md" }],
-    "asarUnpack": ["node_modules/sharp/**/*", "node_modules/@img/**/*", "node_modules/onnxruntime-node/**/*", "node_modules/node-unrar-js/**/*"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "core/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "extraResources": [
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "*.onnx",
+          "*.json",
+          "*.md"
+        ]
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "README.md",
+        "to": "README.md"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/node-unrar-js/**/*"
+    ],
     "npmRebuild": false,
-    "win": { "target": ["portable"], "signExecutable": false },
-    "portable": { "artifactName": "Panel-Reader-${version}-Windows-${arch}.exe" },
-    "linux": { "target": ["AppImage", "tar.gz"], "category": "Graphics", "executableName": "panel-reader", "artifactName": "Panel-Reader-${version}-Linux-${arch}.${ext}" }
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "Panel-Reader-${version}-Windows-${arch}.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Graphics",
+      "executableName": "panel-reader",
+      "artifactName": "Panel-Reader-${version}-Linux-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.graphics-design",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "artifactName": "Panel-Reader-${version}-macOS-${arch}.${ext}"
+    }
   }
 }
