@@ -6,6 +6,9 @@ import { Worker } from 'node:worker_threads';
 import { scanFolders, bookId } from '../core/library.mjs';
 import { COMIC_RE, IMAGE_RE } from '../core/archive.mjs';
 import { normalizeSettings } from '../core/settings.mjs';
+import { saveOriginalPage } from '../core/page-export.mjs';
+const appId = 'org.panelreader.desktop';
+if (process.platform === 'win32') app.setAppUserModelId(appId);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pathKey = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
 const readableFile = value => COMIC_RE.test(value) || IMAGE_RE.test(value);
@@ -49,7 +52,7 @@ async function rescan() {
     const result = await scanFolders([...state.folders], snapshot);
     // Progress or separately opened books can change while the disk scan is running.
     const current = new Map(state.books.map(b => [b.id, b]));
-    state.books = result.books.map(b => { const latest = current.get(b.id); current.delete(b.id); return latest ? { ...b, progress: latest.progress, isNew: latest.isNew, lastRead: latest.lastRead } : b; });
+    state.books = result.books.map(b => { const latest = current.get(b.id); current.delete(b.id); return latest ? { ...b, progress: latest.progress, isNew: latest.isNew, lastRead: latest.lastRead, favorite: latest.favorite } : b; });
     state.books.push(...current.values());
     await save(); emit('library', state); return { ...result, books: state.books };
   })().finally(() => { scanning = null; });
@@ -98,6 +101,20 @@ else {
   session.defaultSession.setPermissionRequestHandler((_, __, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   handle('state', () => state);
+  handle('chooseSaveFolder', async () => {
+    const result = await dialog.showOpenDialog(window, { title: 'Choose a folder for saved pages', defaultPath: state.settings.savePageFolder || undefined, properties: ['openDirectory', 'createDirectory'] });
+    return result.canceled ? null : result.filePaths[0];
+  });
+  handle('savePage', async (id, page) => {
+    const book = getBook(id);
+    const original = await rpc('original', { file: book.path, page });
+    return saveOriginalPage({ ...original, title: book.title, folder: state.settings.savePageFolder });
+  });
+  handle('favorite', async id => {
+    const book = getBook(id); book.favorite = !book.favorite;
+    const favorite = book.favorite;
+    await save(); emit('library', state); return favorite;
+  });
   handle('chooseComic', async () => {
     const result = await dialog.showOpenDialog(window, { title: 'Open comic or image', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Comics and images', extensions: ['cbz', 'cbr', 'zip', 'rar', 'jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'tif', 'tiff'] }, { name: 'Comic archives', extensions: ['cbz', 'cbr', 'zip', 'rar'] }, { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'tif', 'tiff'] }] });
     return result.canceled ? [] : addPaths(result.filePaths);
@@ -149,6 +166,10 @@ else {
   handle('fullscreen', value => { window.setFullScreen(typeof value === 'boolean' ? value : !window.isFullScreen()); return window.isFullScreen(); });
   handle('quit', () => app.quit());
   window = new BrowserWindow({ width: 1440, height: 960, minWidth: 760, minHeight: 540, backgroundColor: '#111315', title: 'Panel Reader', autoHideMenuBar: true, webPreferences: { preload: path.join(root, 'electron/preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
+  if (process.platform === 'win32' && app.isPackaged) {
+    const executable = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+    window.setAppDetails({ appId, appIconPath: executable, relaunchCommand: `"${executable}"`, relaunchDisplayName: 'Panel Reader' });
+  }
   window.setMenu(null);
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ACTIONS, DEFAULT_SETTINGS, keyChord } from '../core/settings.mjs';
 import { Button, Icon } from './icons.jsx';
-export default function Preferences({ settings, update, folders, onRemoveFolder, onChangeFolder, onClose, initialTab = 'reading' }) {
+export default function Preferences({ settings, update, folders, onRemoveFolder, onChangeFolder, onChooseSaveFolder, onClose, initialTab = 'reading' }) {
   const [tab, setTab] = useState(initialTab), [recording, setRecording] = useState(null), [message, setMessage] = useState(''), [filter, setFilter] = useState('');
   const dialog = useRef();
   useEffect(() => { dialog.current.focus(); }, []);
@@ -31,6 +31,8 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
         <h3>Webtoon & continuous scroll</h3>
         <label className="setting-row"><span>Column width<small>Fits smaller windows automatically.</small></span><div className="number-control"><input aria-label="Webtoon width" type="number" min="240" max="4000" value={settings.webtoonWidth} onChange={e => set('webtoonWidth', +e.target.value)}/><span>px</span></div></label>
         <label className="setting-row"><span>Gap between images</span><div className="number-control"><input aria-label="Webtoon gap" type="number" min="0" max="100" value={settings.webtoonGap} onChange={e => set('webtoonGap', +e.target.value)}/><span>px</span></div></label>
+        <h3>Saved pages</h3>
+        <div className="setting-row"><span>Destination folder<small>Original image files are grouped by comic. Save the current page with {settings.shortcuts.savePage || 'the reader button'}.</small><small className="saved-pages-path">{settings.savePageFolder || 'No folder selected'}</small></span><Button icon="folder" onClick={onChooseSaveFolder}>Choose saved pages folder</Button></div>
       </>}
       {tab === 'panels' && <>
         <div className="info-banner"><Icon name="panels"/><div><strong>Local panel detection</strong><p>Panels include their speech bubbles. Missed areas are recovered as local reading regions, and switching views remembers your selected panel. Your comics stay on this computer.</p></div></div>

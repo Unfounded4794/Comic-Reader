@@ -1,6 +1,6 @@
 # Third-party notices
 
-Panel Reader is distributed under GNU AGPL v3. The complete application source and build instructions accompany the local release in `Panel-Reader-0.3.4-source.zip`.
+Panel Reader is distributed under GNU AGPL v3. The complete application source and build instructions accompany the local release in `Panel-Reader-0.3.5-source.zip`.
 
 ## Panel models
 

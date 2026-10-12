@@ -1,5 +1,7 @@
 import React from 'react';
 const paths = {
+  star: 'M12 3l2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L2.9 9.6l6.3-.9z',
+  save: 'M12 3v12M7 10l5 5 5-5M4 16v5h16v-5',
   library: 'M3 3h7v18H3zM14 3h7v8h-7zM14 15h7v6h-7z',
   folder: 'M3 7V5h6l2 2h10v13H3z', open: 'M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6',
   refresh: 'M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9',

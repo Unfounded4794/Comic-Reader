@@ -1,6 +1,7 @@
 export const ACTIONS = [
   ['openFile', 'Open comic', 'Ctrl+O'], ['addFolder', 'Add library folder', 'Ctrl+Shift+O'],
   ['openImages', 'Open image folder / webtoon', 'Ctrl+Alt+O'], ['rescan', 'Rescan library', 'F5'],
+  ['savePage', 'Save original page', 'Ctrl+Shift+S'], ['favorite', 'Toggle favorite comic', 'Ctrl+D'],
   ['library', 'Show library / return to reader', 'L'], ['settings', 'Preferences & shortcuts', 'Ctrl+Comma'],
   ['next', 'Next page / panel', 'ArrowRight'], ['previous', 'Previous page / panel', 'ArrowLeft'],
   ['nextPage', 'Next whole page', 'PageDown'], ['previousPage', 'Previous whole page', 'PageUp'],
@@ -26,7 +27,7 @@ export const DEFAULT_SETTINGS = {
   background: '#141619', scrollAmount: 160, smoothScroll: true, fit: 'page', panelFit: 'page',
   mode: 'page', direction: 'ltr', showCounter: true, panelPadding: 3, panelDim: 0.84,
   detectionThreshold: 0.45, shapeDetection: true, autoScanMinutes: 5,
-  webtoonWidth: 900, webtoonGap: 0, autoNextComic: false,
+  webtoonWidth: 900, webtoonGap: 0, autoNextComic: false, savePageFolder: '',
   shortcuts: Object.fromEntries(ACTIONS.map(([id, , key]) => [id, key])),
 };
 export function normalizeSettings(input = {}) {
@@ -41,6 +42,7 @@ export function normalizeSettings(input = {}) {
   if (['page', 'width', 'height', 'actual'].includes(input.panelFit)) out.panelFit = input.panelFit;
   if (['page', 'guided', 'webtoon'].includes(input.mode)) out.mode = input.mode;
   if (['ltr', 'rtl'].includes(input.direction)) out.direction = input.direction;
+  if (typeof input.savePageFolder === 'string' && input.savePageFolder.length < 32768 && !input.savePageFolder.includes('\0')) out.savePageFolder = input.savePageFolder;
   for (const [id] of ACTIONS) if (typeof input.shortcuts?.[id] === 'string' && input.shortcuts[id].length < 90) out.shortcuts[id] = input.shortcuts[id];
   return out;
 }

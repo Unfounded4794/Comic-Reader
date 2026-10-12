@@ -33,10 +33,11 @@ test('folder rescans discover nested additions once, retain progress, and mark m
   const dir = await temporary(t); await fs.mkdir(path.join(dir, 'nested'));
   await fs.writeFile(path.join(dir, 'Issue 1.cbz'), 'one');
   const first = await scanFolders([dir]); assert.equal(first.added, 1);
-  first.books[0].progress = { page: 5, panel: 2 }; first.books[0].isNew = false;
+  first.books[0].progress = { page: 5, panel: 2 }; first.books[0].isNew = false; first.books[0].favorite = true;
   await fs.writeFile(path.join(dir, 'nested', 'Issue 2.CBR'), 'two');
   const second = await scanFolders([dir, path.join(dir, 'nested')], first.books);
   assert.equal(second.added, 1); assert.equal(second.books.length, 2); assert.deepEqual(second.books[0].progress, { page: 5, panel: 2 }); assert.equal(second.books[0].isNew, false);
+  assert.equal(second.books[0].favorite, true);
   await fs.unlink(path.join(dir, 'Issue 1.cbz'));
   const third = await scanFolders([dir], second.books); assert.equal(third.added, 0); assert.equal(third.books[0].missing, true);
 });

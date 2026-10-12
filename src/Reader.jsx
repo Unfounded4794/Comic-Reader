@@ -26,7 +26,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
     setWebInfo(old => ({ ...old, [index]: value }));
   }
   useEffect(() => {
-    const observer = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    const observer = new ResizeObserver(([entry]) => setSize(old => old.width === entry.contentRect.width && old.height === entry.contentRect.height ? old : { width: entry.contentRect.width, height: entry.contentRect.height }));
     observer.observe(viewport.current); return () => observer.disconnect();
   }, []);
   useImperativeHandle(forwarded, () => ({
@@ -113,12 +113,12 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
     onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
     {webtoon ? <div className="webtoon-stack" style={{ width: webtoonDrawWidth, gap: settings.webtoonGap }}>
       {book.names.map((name, index) => <WebtoonPage key={`${book.id}-${index}`} id={book.id} page={index} name={name} root={viewport} width={webtoonDrawWidth} onInfo={value => receiveWebInfo(index, value)} onError={onError}/>)}
-    </div> : info ? <div className="page-surface" style={{ width: surfaceW, height: surfaceH }}>
+    </div> : info && (!guided || active) ? <div className="page-surface" style={{ width: surfaceW, height: surfaceH }}>
       <div className="page-art" style={{ width: drawnW, height: drawnH, left, top }}>
         {Array.from({ length: info.tiles }, (_, i) => <img key={`${book.id}-${page}-${i}`} src={imageUrl(book.id, page, info.tiles > 1 ? `tile/${i}` : 'image')} alt={`${book.title}, page ${page + 1}${info.tiles > 1 ? `, strip ${i + 1}` : ''}`} draggable="false" style={{ width: drawnW, height: Math.min(info.tileHeight, height - i * info.tileHeight) * scale }} onError={() => onError('Could not decode this page. Try reopening the comic.')} />)}
         {guided && active && <svg className="panel-shade" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><defs><mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="1" height="1"><rect width="1" height="1" fill="white"/><polygon points={active.polygon.map(p => p.join(',')).join(' ')} fill="black"/>{active.protectedRegions?.map((r, i) => <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill="black"/>)}</mask></defs><rect width="1" height="1" fill="black" fillOpacity={settings.panelDim} mask={`url(#${maskId})`}/></svg>}
       </div>
-    </div> : <div className="loading-page"><span className="spinner"/>Loading page…</div>}
+    </div> : <div className="loading-page"><span className="spinner"/>{guided && !active ? 'Finding panels…' : 'Loading page…'}</div>}
   </div>;
 });
 function WebtoonPage({ id, page, name, root, width, onInfo, onError }) {

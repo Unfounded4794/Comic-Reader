@@ -33,6 +33,10 @@ async function raw(file, page) {
 }
 async function panelPath(file, page) { return path.join(workerData.cache, `${(await archive(file)).fingerprint}-${page}-panels.json`); }
 const methods = {
+  async original({ file, page }) {
+    const bytes = await raw(file, page);
+    return { bytes, name: (await archive(file)).handle.names[page] };
+  },
   async open({ file }) {
     const { handle, fingerprint } = await archive(file); let suggestedWebtoon = false;
     if (handle.kind === 'image') { const meta = await sharp(await handle.read(0), { limitInputPixels: 400000000 }).metadata(); suggestedWebtoon = (meta.autoOrient?.height ?? meta.height) > (meta.autoOrient?.width ?? meta.width) * 2; }

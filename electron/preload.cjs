@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const invoke = (method, ...args) => ipcRenderer.invoke('reader:' + method, ...args);
 contextBridge.exposeInMainWorld('reader', {
   state: () => invoke('state'),
+  chooseSaveFolder: () => invoke('chooseSaveFolder'), savePage: (id, page) => invoke('savePage', id, page),
+  favorite: id => invoke('favorite', id),
   chooseComic: () => invoke('chooseComic'), chooseFolder: () => invoke('chooseFolder'), chooseImages: () => invoke('chooseImages'),
   addPaths: files => invoke('addPaths', files), pathForFile: file => webUtils.getPathForFile(file),
   rescan: () => invoke('rescan'), removeFolder: folder => invoke('removeFolder', folder), changeFolder: folder => invoke('changeFolder', folder),

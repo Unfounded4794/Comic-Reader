@@ -1,6 +1,20 @@
 # Validation
 
-The reader was developed and tested on Windows on 2026-09-26–28 and 2026-10-01. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
+The reader was developed and tested on Windows on 2026-09-26–28, 2026-10-01, and 2026-10-13. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
+
+## 0.3.5 original page exports, favorites, and stable panel zoom
+
+All 31 unit tests, 13 existing navigation scenarios, and 15 existing desktop scenarios pass on Windows. The new feature suite passes against the unpacked Windows release. It covers choosing a saved-pages destination, rebinding both new shortcuts, exporting original JPEG bytes from a CBZ, saving the image at the current continuous-scroll position, exporting an entire 18,000-pixel PNG despite tiled display, preventing identical duplicate saves, and preserving different same-named files. A real RAR-format CBR entry also exports byte for byte with its original extension. Unit checks cover invalid/path-like archive names and settings normalization.
+
+Favorite controls and shortcuts are exercised in both the reader and the library. Favorites survive a library rescan and an app restart, and removal updates the collection. The UI version is compared against package metadata. Screenshots of saved-page preferences and Favorites were inspected locally; test data and screenshots remain in ignored `validation/` paths.
+
+Guided mode reserves both scrollbar axes, avoiding a feedback loop between the measured viewport and the fitted page size. It also waits for the target page's panel layout instead of briefly fitting the previous page's layout. Synthetic wide, tall, and full-page panels remain stable at viewport widths of 760, 1000, and 1440 pixels. For each frame, the tests sample the artwork dimensions, viewport dimensions, and both scroll offsets for 90 animation frames and require the final 75 frames to be identical. Returning from guided to fit-width still starts at the top.
+
+Every detected panel on the user's Super Sons omnibus pages 8, 16, and 82 is checked with the same frame sampling against the packaged Windows app. The local sample remains unchanged and is not bundled or uploaded. This checks camera stability on the reported pages, not panel-detection accuracy for the whole omnibus. Reports include each panel's final size and scroll position.
+
+Windows portable and NSIS installer releases, Linux x64 tar, and matching source are built for 0.3.5. Package inspection matches 15 application files and all four model hashes in both platforms, checks the correct native libraries, verifies the Linux ELF architecture, and confirms executable archive modes. The Windows executable metadata reports version 0.3.5. Windows app/window identity and portable relaunch properties are configured; taskbar pinning has not been manually tested and the installer is recommended for a stable shortcut target.
+
+The new GitHub release workflow is parsed locally and configured to test/build on Windows, Linux, and native Apple Silicon macOS runners, then upload a draft release for a matching version tag. No remote workflow run or upload has occurred. Mac packaging/runtime and Linux runtime are not claimed as locally tested.
 
 ## 0.3.4 webtoon panel handoff and platform packages
 

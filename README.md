@@ -4,11 +4,11 @@ A standalone, offline comic reader for Windows and Linux (including CachyOS), wi
 
 ## Run the packaged app
 
-**Windows x64:** run `Panel-Reader-0.3.4-Windows-x64.exe`. This is a portable launcher: it extracts the bundled application temporarily and keeps your library/settings under `%APPDATA%/Panel Reader`. The build is unsigned.
+**Windows x64:** use `Panel-Reader-0.3.5-Windows-x64-Setup.exe` for an installed app with a stable Start menu shortcut that can be pinned to the taskbar. Alternatively run `Panel-Reader-0.3.5-Windows-x64.exe`, a portable launcher that temporarily extracts the bundled application. Both keep your library/settings under `%APPDATA%/Panel Reader`. The builds are unsigned. If a pin from an older portable release does not work, unpin it and pin the installed Start menu shortcut. Portable releases now set their taskbar identity and relaunch target to the outer EXE; keep that EXE at the same path for the pin to work.
 
-**CachyOS / Linux x64:** extract `Panel-Reader-0.3.4-Linux-x64.tar.gz`, open the extracted folder, and run `./panel-reader`. Executable permissions are included and verified in the archive. If your extraction tool discards them, run `chmod +x panel-reader chrome-sandbox chrome_crashpad_handler`. A normal graphical desktop with glibc, GTK 3, NSS, ALSA and GBM is needed; these are normally present on a desktop CachyOS installation. The tar distribution does not need FUSE. Linux packages are cross-built; this development machine has not run the application on CachyOS.
+**CachyOS / Linux x64:** extract `Panel-Reader-0.3.5-Linux-x64.tar.gz`, open the extracted folder, and run `./panel-reader`. Executable permissions are included and verified in the archive. If your extraction tool discards them, run `chmod +x panel-reader chrome-sandbox chrome_crashpad_handler`. A normal graphical desktop with glibc, GTK 3, NSS, ALSA and GBM is needed; these are normally present on a desktop CachyOS installation. The tar distribution does not need FUSE. Linux packages are cross-built; this development machine has not run the application on CachyOS.
 
-**Apple Silicon macOS:** run `npm ci`, `npm run models`, and `npm run pack:mac` on a Mac to create `Panel-Reader-0.3.4-macOS-arm64.zip`. The macOS target is configured for native ARM64 Electron, Sharp, and ONNX Runtime binaries. It uses an ad hoc signature for a local build and is not notarized. It has not been built or run on a Mac yet; this Windows machine cannot produce a macOS package with electron-builder.
+**Apple Silicon macOS:** run `npm ci`, `npm run models`, and `npm run pack:mac` on a Mac to create `Panel-Reader-0.3.5-macOS-arm64.zip`. The macOS target is configured for native ARM64 Electron, Sharp, and ONNX Runtime binaries. It uses an ad hoc signature for a local build and is not notarized. It has not been built or run on a Mac yet; this Windows machine cannot produce a macOS package with electron-builder. The release workflow includes a native Apple Silicon runner.
 
 On Linux, preferences and cached panel layouts live in `~/.config/Panel Reader`. `PANEL_READER_DATA` can override the data directory, useful for tests or a portable profile. The comics themselves stay wherever you selected them.
 
@@ -39,8 +39,16 @@ Home has a **Continue reading** shelf for up to ten recently active series, resu
 | Fullscreen / show controls | F11 / Tab |
 | Library / preferences / background | L / Ctrl+, / B |
 | Next / previous comic | Ctrl+Right / Ctrl+Left |
+| Save original page | Ctrl+Shift+S |
+| Favorite / unfavorite issue | Ctrl+D |
 
-**Preferences → Shortcuts** lists all 48 commands. Click a binding and press a new combination. Conflicts are reported; bindings can be cleared. Shortcuts use physical key codes so the same binding is stable across keyboard layouts. OS-reserved combinations remain subject to the desktop environment.
+**Preferences → Shortcuts** lists all 50 commands. Click a binding and press a new combination. Conflicts are reported; bindings can be cleared. Shortcuts use physical key codes so the same binding is stable across keyboard layouts. OS-reserved combinations remain subject to the desktop environment.
+
+## Save pages and favorites
+
+Choose **Preferences → Reading → Saved pages → Choose saved pages folder** once, then press **Ctrl+Shift+S** or the save button while reading. The original image entry is copied into a subfolder named after the comic, preserving its filename, format and bytes. Guided mode saves the complete page, and a tiled long webtoon saves its complete original image. In continuous mode, the page at the top of the viewport is saved. Repeating a save skips an identical file; different files with the same name get a numbered suffix. The archive stays unchanged.
+
+Press **Ctrl+D** while reading, click the star on a cover, or focus a comic and use the shortcut to toggle its favorite status. **Favorites** sits below History and lists starred issues across your library. Favorites persist through app restarts and rescans. Both shortcuts are configurable.
 
 ## Guided panels
 
@@ -79,6 +87,12 @@ npm run pack:mac     # ad hoc signed Apple Silicon ZIP on macOS
 
 Use `npm run pack:linux:tar` for a tar-only build. Cross-building from Windows requires the target-platform sharp packages: `npm install --no-save --force @img/sharp-linux-x64@0.35.4 @img/sharp-libvips-linux-x64@1.3.3`. Native ONNX Runtime binaries ship with its npm package for Windows, Linux, and macOS ARM64; Sharp installs the matching optional package on each native build host. Build tools and model downloads need network access; the finished reader does not.
 
+### GitHub releases
+
+Local packaging scripts write into the ignored `release/` folder; a normal Git push does not upload those files. `.github/workflows/release.yml` builds Windows portable + installer, Linux AppImage + tar, Apple Silicon macOS ZIP, and corresponding source on native runners. It tests before packaging and uploads all six artifacts plus SHA-256 checksums to a **draft** GitHub release when a tag matching `package.json` is pushed (for this version, `v0.3.5`). Commit and push the workflow and code before pushing the tag. Review the draft in GitHub Releases and publish it when ready. A manual Actions run from a branch builds downloadable workflow artifacts without creating a release. The workflow uses GitHub's repository token with `contents: write` only in its upload job; GitHub Actions must be enabled for the repository. It has not yet run remotely.
+
+`npm run test:features` checks original-byte page exports, save destination and shortcut preferences, favorites across rescans/restarts, the UI version, and guided zoom stability at three viewport widths. Set `PANEL_READER_JITTER_SAMPLE` to a local omnibus archive to also test every detected panel on pages 8, 16, and 82 and compare their exported bytes against archive entries.
+
 `npm run test:samples` fully decodes and detects each page in local sample archives and produces diagnostic overlays. Provide a JSON array of absolute archive paths through `PANEL_READER_SAMPLES`, or save it to the ignored `validation/sample-paths.json`. Set `PANEL_READER_SAMPLE_OUTPUT` to keep before/after reports in separate folders. `npm run test:navigation` checks Home, ten continuations, spatial keys at three window widths, and both chapter boundaries. `npm run test:desktop` drives the built Electron app with temporary settings and synthetic fixtures plus those sample archives. `npm run pack:source` creates a source ZIP, including model weights and licenses, excluding comics, test outputs and personal paths.
 
 ## Practical limits
@@ -87,6 +101,6 @@ Use `npm run pack:linux:tar` for a tar-only build. Cross-building from Windows r
 - JPEG, PNG, WebP, AVIF, GIF and TIFF page files are recognized. Animated images are treated as static pages; TIFF/GIF are normalized for display.
 - First-page cover thumbnails and panel results are cached locally. Automatic detections invalidate when archive size or modification time changes. Caches currently have no automatic disk eviction; the in-memory compressed-image cache is limited to 128 MB.
 - Library archive scanning includes every subfolder. Directory links are followed with real-path cycle detection, so linked collection folders work without creating scan loops. Image folders read immediate child images.
-- The local build is unsigned. No publishing, installer registration, file associations or system-wide changes are performed.
+- The local builds are unsigned. The optional Windows installer creates app shortcuts; the portable release does not install the app. File associations are not registered. Local packaging does not publish to GitHub.
 
 The application is AGPL-3.0-only because the bundled detector models carry AGPL requirements. See `THIRD_PARTY_NOTICES.md` and `models/manifest.json` for provenance and checksums.

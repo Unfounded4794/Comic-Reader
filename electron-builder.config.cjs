@@ -15,7 +15,7 @@ module.exports = {
     '!node_modules/onnxruntime-node/bin/napi-v6/linux/arm64/**/*',
     '!node_modules/@img/{sharp-win32-*,sharp-wasm32}/**/*',
   ] },
-  mac: { ...baseConfig.mac, icon: 'assets/icon.svg', files: [
+  mac: { ...baseConfig.mac, icon: 'assets/icon.png', files: [
     ...baseConfig.files,
     '!validation/**/*',
     '!node_modules/onnxruntime-node/bin/napi-v6/{win32,linux}/**/*',

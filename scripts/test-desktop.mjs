@@ -66,6 +66,7 @@ try {
     await expect(page.getByRole('button', { name: 'Shortcut for Next page / panel', exact: true })).toHaveText('J');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(page.locator('.reading-viewport')).toHaveCSS('background-color','rgb(36, 49, 66)'); await page.keyboard.press('j'); await expect(page.locator('.page-count')).toContainText('Page 2');
+    await expect(page.locator('.page-art img').first()).toHaveAttribute('src', /\/1\/image$/);
     await page.keyboard.press('ArrowDown'); await expect.poll(() => page.locator('.reading-viewport').evaluate(e => Math.round(e.scrollTop))).toBe(240);
   });
   await check('fullscreen contains no toolbar, counter, or overlay', async () => {
