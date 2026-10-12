@@ -2,6 +2,10 @@
 
 The reader was developed and tested on Windows on 2026-09-26–28, 2026-10-01, and 2026-10-13. Linux x64 is a packaging target; no CachyOS desktop was available for execution testing.
 
+## 0.3.6 macOS bundle packaging
+
+The first tagged GitHub release attempt confirmed that the Windows build succeeds and the feature suite passes on native Linux and Apple Silicon runners. The Mac package failed during ad hoc signing because the global `extraFiles` rules placed the README directly in `Contents`. macOS now copies documentation into `Contents/Resources`; Windows and Linux retain their documentation beside the executable. Local checks use electron-builder's actual file matchers to verify that Mac has no `extraFiles`, retains its model resources, and places both documentation files under Resources. The corrected release uses version 0.3.6; no reader behavior changes are included.
+
 ## 0.3.5 original page exports, favorites, and stable panel zoom
 
 All 31 unit tests, 13 existing navigation scenarios, and 15 existing desktop scenarios pass on Windows. The new feature suite passes against the unpacked Windows release. It covers choosing a saved-pages destination, rebinding both new shortcuts, exporting original JPEG bytes from a CBZ, saving the image at the current continuous-scroll position, exporting an entire 18,000-pixel PNG despite tiled display, preventing identical duplicate saves, and preserving different same-named files. A real RAR-format CBR entry also exports byte for byte with its original extension. Unit checks cover invalid/path-like archive names and settings normalization.

@@ -1,7 +1,7 @@
 {
   "name": "panel-reader",
   "productName": "Panel Reader",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "An offline comic reader with guided panels and continuous webtoon reading.",
   "author": "Panel Reader contributors",
   "license": "AGPL-3.0-only",
