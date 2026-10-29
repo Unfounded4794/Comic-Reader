@@ -55,6 +55,31 @@ try {
     const pkg = JSON.parse(await fs.readFile('package.json', 'utf8'));
     await expect(page.locator('.library-footer b')).toHaveText(pkg.version);
   });
+  await check('upload is hidden without sharing; format and folder-name tooltips are visible', async () => {
+    await expect(page.getByRole('button', { name: 'Upload progress', exact: true })).toHaveCount(0);
+    await expect(page.locator('.folder-select>span')).toHaveAttribute('title', 'Comics');
+    await expect(page.locator('.folder-card-copy strong')).toHaveAttribute('title', 'Comics');
+    await issues(); await expect(page.locator('.book-format').filter({ hasText: 'CBZ' })).toHaveCount(1);
+  });
+  await check('the hover control marks an unopened comic read and unread without opening the reader', async () => {
+    const tile = page.locator('.book-tile').filter({ hasText: 'Issue 01' });
+    await tile.hover(); await page.getByRole('button', { name: 'Mark read: Issue 01', exact: true }).click();
+    await expect(tile.locator('.book-card')).toHaveClass(/is-read/); await expect(tile.locator('.book-meta')).toContainText('Read');
+    const state = await page.evaluate(() => window.reader.state()); expect(state.books.find(b => b.title === 'Issue 01').pageCount).toBe(2);
+    await page.screenshot({ path: 'validation/ui-manual-read.png' });
+    await page.getByRole('button', { name: 'Mark unread: Issue 01', exact: true }).click();
+    await expect(tile.locator('.book-card')).not.toHaveClass(/is-read/); await expect(tile.locator('.book-meta')).toContainText('Unread');
+    await expect(page.locator('.reader-main')).toHaveCount(0);
+  });
+  await check('right-click Open file location reveals the selected comic', async () => {
+    await app.evaluate(({ shell, Menu }) => {
+      globalThis.revealedFiles = []; shell.showItemInFolder = file => globalThis.revealedFiles.push(file);
+      Menu.prototype.popup = function () { globalThis.contextLabels = this.items.map(item => item.label); this.items[0].click(); };
+    });
+    await page.locator('.book-card').filter({ hasText: 'Issue 01' }).click({ button: 'right' });
+    await expect.poll(() => app.evaluate(() => globalThis.revealedFiles)).toEqual([path.join(library, 'Issue 01.cbz')]);
+    expect(await app.evaluate(() => globalThis.contextLabels)).toEqual(['Open file location']);
+  });
   await check('favorite card and shortcut populate Favorites and survive rescan', async () => {
     await issues();
     await page.getByRole('button', { name: 'Add to favorites: Issue 01', exact: true }).click();
@@ -94,6 +119,8 @@ try {
     await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press('F11');
     await expect(page.locator('.reader-toolbar')).toHaveCount(0);
     await page.keyboard.press('Control+Alt+s'); await expect(page.locator('.toast')).toBeVisible(); await expect(page.locator('.toast')).toContainText(saved);
+    await page.locator('.saved-location').click();
+    await expect.poll(() => app.evaluate(() => globalThis.revealedFiles.at(-1))).toBe(path.join(saved, 'Issue 01/016.JPG'));
     await page.screenshot({ path: 'validation/ui-fullscreen-save.png' });
     await expect(page.locator('.reader-footer')).toHaveCount(0); await page.keyboard.press('F11');
   });

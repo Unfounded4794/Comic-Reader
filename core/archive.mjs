@@ -27,6 +27,7 @@ export class ZipRangeReader extends yauzl.RandomAccessReader {
           return buffer;
         })();
         this.blocks.set(base, task);
+        task.catch(() => { if (this.blocks.get(base) === task) this.blocks.delete(base); });
         while (this.blocks.size > 16) this.blocks.delete(this.blocks.keys().next().value);
       }
       const block = await this.blocks.get(base), count = Math.min(end - position, block.length - (position - base));
@@ -38,7 +39,18 @@ export class ZipRangeReader extends yauzl.RandomAccessReader {
   read(buffer, offset, length, position, callback) { this.range(position, position + length).then(bytes => { bytes.copy(buffer, offset); callback(null, bytes.length); }, callback); }
   _readStreamForRange(start, end) {
     if (end - start <= 65536) return Readable.from((async function* (reader) { yield await reader.range(start, end); })(this));
-    return this.handle.createReadStream({ start, end: end - 1, autoClose: false, highWaterMark: 256 * 1024 });
+    // yauzl destroys its range stream after extraction. FileHandle streams close
+    // their shared handle on destroy even with autoClose:false, breaking later
+    // pages. Keep ownership here and read bounded chunks without an fd stream.
+    return Readable.from((async function* (reader) {
+      for (let position = start; position < end;) {
+        const buffer = Buffer.alloc(Math.min(256 * 1024, end - position));
+        const { bytesRead } = await reader.handle.read(buffer, 0, buffer.length, position);
+        reader.onRead(bytesRead);
+        if (!bytesRead) throw new Error('Unexpected ZIP end of file.');
+        position += bytesRead; yield buffer.subarray(0, bytesRead);
+      }
+    })(this));
   }
   close(callback) { this.handle.close().then(() => callback(), callback); }
 }

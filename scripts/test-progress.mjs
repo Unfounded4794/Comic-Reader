@@ -115,7 +115,7 @@ try {
     await expect(a.page.locator('.next-card').filter({ hasText: 'Issue 02' })).toHaveCount(1);
     await sync(a, b); expect((await book(b, 'Renamed volume')).completed).toBe(true);
   });
-  await check('hovering the read badge offers Mark unread and Update progress shares the reset', async () => {
+  await check('hovering the read badge offers Mark unread and Upload progress shares the reset', async () => {
     await a.page.getByLabel('Search comics').fill('Issue 01');
     const badge = a.page.getByRole('button', { name: 'Mark unread: Issue 01', exact: true });
     await badge.hover(); await expect(badge.locator('.unread-label')).toBeVisible();
@@ -123,11 +123,16 @@ try {
     await expect.poll(async () => (await book(a, 'Issue 01')).completed).toBe(false);
     expect((await book(a, 'Issue 01')).progress).toBeUndefined(); expect((await book(a, 'Issue 01')).lastRead).toBeUndefined();
     await expect(a.page.locator('.book-card')).not.toHaveClass(/is-read/);
-    await a.page.getByRole('button', { name: 'Update progress', exact: true }).click();
+    await a.page.getByRole('button', { name: 'Upload progress', exact: true }).click();
     await expect(a.page.locator('.toast')).toContainText('Reading progress is shared.');
-    await library(b); await b.page.getByRole('button', { name: 'Update progress', exact: true }).click();
+    await library(b); await b.page.getByRole('button', { name: 'Upload progress', exact: true }).click();
     await expect.poll(async () => (await book(b, 'Renamed volume')).progress).toBeUndefined();
     expect((await book(b, 'Renamed volume')).completed).toBe(false);
+    const markRead = a.page.getByRole('button', { name: 'Mark read: Issue 01', exact: true });
+    await a.page.locator('.book-tile').filter({ hasText: 'Issue 01' }).hover(); await markRead.click();
+    await sync(a, b); expect((await book(b, 'Renamed volume')).completed).toBe(true);
+    expect((await book(b, 'Renamed volume')).pageCount).toBe(4);
+    await a.page.getByRole('button', { name: 'Mark unread: Issue 01', exact: true }).click(); await sync(a, b);
     await open(a, 'Issue 01'); await expect(a.page.locator('.page-count')).toContainText('Page 1');
     await go(a, 4); await expect.poll(async () => (await book(a, 'Issue 01')).completed).toBe(true);
     await sync(a, b); await library(a);

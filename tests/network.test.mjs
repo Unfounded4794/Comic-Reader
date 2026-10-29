@@ -33,6 +33,24 @@ test('old whole-file identifiers can migrate without discarding their identity',
   assert.notEqual(next.contentId, old.contentId); assert.equal(next.legacyContentId, old.contentId); assert.equal(next.fingerprintVersion, 2);
   assert.equal((await fingerprint(file, next)).contentId, next.contentId);
 });
+
+test('large ZIP page streams keep the archive open for subsequent and concurrent reads', async t => {
+  const root = await fixture(t);
+  for (const compress of [false, true]) {
+    const file = path.join(root, `${compress}.cbz`), pages = Array.from({ length: 3 }, () => randomBytes(400000));
+    const archive = new yazl.ZipFile(), output = createWriteStream(file); archive.outputStream.pipe(output);
+    pages.forEach((bytes, i) => archive.addBuffer(bytes, `${i}.png`, { compress }));
+    archive.end(); await finished(output);
+    const book = await openArchive(file);
+    try {
+      assert.deepEqual(await book.read(0), pages[0]);
+      // The old FileHandle stream had already destroyed the shared handle here.
+      assert.deepEqual(await book.read(1), pages[1]);
+      const results = await Promise.all([book.read(2), book.read(0), book.read(1)]);
+      assert.deepEqual(results, [pages[2], pages[0], pages[1]]);
+    } finally { book.close(); }
+  }
+});
 test('discovery publishes usable batches while slower folders are still being scanned', async t => {
   const root = await fixture(t), slow = path.join(root, 'Slow'); await fs.mkdir(slow); await fs.writeFile(path.join(root, 'Ready.cbz'), 'ready');
   let release; const blocked = new Promise(resolve => { release = resolve; });
@@ -74,4 +92,24 @@ test('cached covers and loaded pages survive a worker restart and an unavailable
   assert.deepEqual((await rpc(second, 'image', { file, page: 0, source, thumbnail: true })).bytes, cover.bytes);
   assert.deepEqual(Buffer.from((await rpc(second, 'image', { file, page: 0, source })).bytes), image);
   assert.equal((await rpc(second, 'info', { file, page: 0, source })).height, 150);
+});
+
+test('reader:info and page images keep working after reading a large compressed ZIP page', async t => {
+  const root = await fixture(t), cache = path.join(root, 'cache'), file = path.join(root, 'large-pages.cbz');
+  const bytes = await sharp(randomBytes(512 * 768 * 3), { raw: { width: 512, height: 768, channels: 3 } }).png().toBuffer();
+  const archive = new yazl.ZipFile(), output = createWriteStream(file); archive.outputStream.pipe(output);
+  for (let i = 0; i < 3; i++) archive.addBuffer(bytes, `${i}.png`);
+  archive.end(); await finished(output);
+  const worker = new Worker(new URL('../electron/worker.mjs', import.meta.url), { workerData: { cache, models: path.resolve('models') } });
+  t.after(() => worker.terminate()); let id = 0;
+  const rpc = (method, args) => new Promise((resolve, reject) => {
+    const serial = ++id;
+    const receive = message => { if (message.id !== serial) return; worker.off('message', receive); message.error ? reject(new Error(message.error)) : resolve(message.result); };
+    worker.on('message', receive); worker.postMessage({ id: serial, method, args });
+  });
+  assert.equal((await rpc('open', { file })).names.length, 3);
+  for (const page of [0, 1, 2, 0]) {
+    assert.equal((await rpc('info', { file, page })).height, 768);
+    assert.deepEqual(Buffer.from((await rpc('image', { file, page })).bytes), bytes);
+  }
 });

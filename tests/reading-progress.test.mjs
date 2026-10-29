@@ -122,7 +122,42 @@ test('a damaged peer file does not prevent valid bookmarks from being exchanged'
   const badFile = path.join(shared, '.panel-reader-progress', 'broken-device.json');
   await fs.writeFile(badFile, '{broken'); await b.sync();
   assert.equal(b.get(key).progress.page, 22); assert.equal(b.statuses.at(-1).state, 'partial');
+  assert.equal(b.statuses.at(-1).issues[0].file, badFile);
+  assert.equal(b.statuses.at(-1).issues[0].kind, 'invalid');
+  assert.match(b.statuses.at(-1).message, /broken-device.json/);
   assert.equal(await fs.readFile(badFile, 'utf8'), '{broken');
+});
+
+test('transient incomplete network snapshots are retried before reporting damage', async t => {
+  const { shared, device } = await fixture(t), a = await device('a'), b = await device('b');
+  await record(a, 27); await a.sync();
+  const file = path.join(shared, '.panel-reader-progress', `${a.document.device}.json`), good = await fs.readFile(file);
+  await fs.writeFile(file, '{');
+  const pending = b.sync();
+  await new Promise(resolve => setTimeout(resolve, 40)); await fs.writeFile(file, good);
+  await pending;
+  assert.equal(b.statuses.at(-1).state, 'synced'); assert.equal(b.get(key).progress.page, 27);
+});
+
+test('a malformed own shared snapshot is repaired from the local outbox', async t => {
+  const { shared, device } = await fixture(t), a = await device('a');
+  await record(a, 13); await a.sync();
+  const file = path.join(shared, '.panel-reader-progress', `${a.document.device}.json`);
+  await fs.writeFile(file, '{broken'); await a.sync({ force: true });
+  assert.equal(a.statuses.at(-1).state, 'synced');
+  assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).entries[key][0].progress.page, 13);
+  const b = await device('b'); await b.sync(); assert.equal(b.get(key).progress.page, 13);
+  await fs.unlink(file); await a.sync(); assert.ok(await fs.stat(file));
+});
+
+test('network read failures are identified separately from invalid progress documents', async t => {
+  const { shared, device } = await fixture(t), a = await device('a'); await a.sync();
+  await fs.mkdir(path.join(shared, '.panel-reader-progress', 'unavailable-device.json'));
+  await a.sync({ force: true });
+  assert.equal(a.statuses.at(-1).state, 'partial');
+  assert.equal(a.statuses.at(-1).issues[0].kind, 'unavailable');
+  assert.ok(a.statuses.at(-1).issues[0].code);
+  assert.doesNotMatch(a.statuses.at(-1).message, /damaged/);
 });
 test('concurrent updates to different comics never discard each other', async t => {
   const { device } = await fixture(t), a = await device('a'), b = await device('b'), other = `sha256:${'b'.repeat(64)}`;

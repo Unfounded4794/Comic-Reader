@@ -87,12 +87,31 @@ function validate(document) {
 }
 async function readDocument(file, stat) {
   if ((stat ?? await fs.stat(file)).size > 64 * 1024 * 1024) throw new Error('Reading progress file is too large.');
-  return validate(JSON.parse(await fs.readFile(file, 'utf8')));
+  return validate(JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, '')));
 }
 async function atomicWrite(file, document) {
   const temp = `${file}.${randomUUID()}.tmp`;
-  try { await fs.writeFile(temp, JSON.stringify(document), { flag: 'wx' }); await fs.rename(temp, file); }
+  try {
+    const handle = await fs.open(temp, 'wx');
+    try { await handle.writeFile(JSON.stringify(document)); await handle.sync(); } finally { await handle.close(); }
+    await fs.rename(temp, file);
+  }
   finally { await fs.unlink(temp).catch(() => {}); }
+}
+
+async function readPeer(file, stat) {
+  // SMB/cloud mounts can briefly expose a replacement as incomplete or locked.
+  // Retry before diagnosing it, and never call permissions/network errors damage.
+  try { return await readDocument(file, stat); }
+  catch {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return readDocument(file);
+  }
+}
+function peerIssue(file, error) {
+  const kind = error.code ? 'unavailable' : 'invalid';
+  const reason = error instanceof SyntaxError ? 'incomplete or invalid JSON' : error.message;
+  return { file, kind, reason, code: error.code };
 }
 
 // Local mutations never wait for network I/O. Every installation owns a separate
@@ -175,9 +194,9 @@ export class ReadingProgress {
       try {
         const stat = await fs.stat(file), version = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
         if (!force && this.peers.get(file) === version) continue;
-        documents.push(await readDocument(file, stat)); versions.set(file, version);
+        documents.push(await readPeer(file, stat)); versions.set(file, version);
       }
-      catch (error) { if (error.code !== 'ENOENT') invalid.push(name); }
+      catch (error) { if (error.code !== 'ENOENT') invalid.push(peerIssue(file, error)); }
     }
     if (this.sharedFolder() !== folder) return;
     const changed = await this.enqueue(async () => {
@@ -205,15 +224,19 @@ export class ReadingProgress {
     });
     for (const [file, version] of versions) this.peers.set(file, version);
     if (this.sharedFolder() !== folder) return;
-    if (force || this.lastTarget !== target || this.syncedGeneration !== changed.generation) {
-      const ownFile = path.join(target, `${this.document.device}.json`);
+    const ownFile = path.join(target, `${this.document.device}.json`);
+    if (force || this.lastTarget !== target || this.syncedGeneration !== changed.generation || !names.includes(path.basename(ownFile)) || invalid.some(issue => issue.file === ownFile)) {
       await atomicWrite(ownFile, changed.document);
       const stat = await fs.stat(ownFile); this.peers.set(ownFile, `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`);
     }
     if (this.sharedFolder() !== folder) return;
     this.syncedGeneration = changed.generation;
     this.lastTarget = target;
-    this.onStatus({ state: invalid.length ? 'partial' : this.generation === changed.generation ? 'synced' : 'pending', message: invalid.length ? 'Progress is shared, but a damaged device file could not be read.' : this.generation === changed.generation ? 'Reading progress is shared.' : 'New progress is waiting to be shared.', lastSynced: Date.now() });
+    // A broken snapshot owned by this installation has just been replaced from
+    // its durable local store. Other devices' files are always preserved.
+    const issues = invalid.filter(issue => issue.file !== ownFile);
+    const issue = issues[0];
+    this.onStatus({ state: issues.length ? 'partial' : this.generation === changed.generation ? 'synced' : 'pending', message: issue ? `Progress uploaded. Could not read ${path.basename(issue.file)}: ${issue.reason}${issues.length > 1 ? ` (${issues.length} device files affected)` : ''}. Will retry.` : this.generation === changed.generation ? 'Reading progress is shared.' : 'New progress is waiting to be shared.', issues, lastSynced: Date.now() });
   }
   async flush() { await this.queue; }
 }

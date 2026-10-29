@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, session, shell, Menu } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,6 +20,11 @@ let window, worker, coverWorker, panelWorker, scanTimer, scanning, scanControlle
 let saveQueue = Promise.resolve(); let serial = 0; const calls = new Map();
 let reading, syncTimer, indexing, identityController, flushClose, indexAgain = false, readerActive = false;
 const identities = new Map(), sessions = new Map();
+const savedPages = new Set();
+async function reveal(file) {
+  try { await fs.stat(file); } catch { throw new Error('This location is unavailable. Check the drive connection.'); }
+  shell.showItemInFolder(file);
+}
 const statePath = () => path.join(app.getPath('userData'), 'library.json');
 function save() {
   const content = JSON.stringify(state);
@@ -213,14 +218,29 @@ else {
   handle('syncProgress', async () => { await reading.sync({ force: true }); return state.syncStatus; });
   handle('view', view => { readerActive = view === 'reader'; if (readerActive) identityController?.abort(); else void indexBooks(); });
   handle('cancelScan', () => { scanController?.abort(); identityController?.abort(); });
-  handle('markUnread', async id => {
+  const markReading = async (id, completed) => {
     let book = getBook(id);
-    if (!book.contentId) book = await identifyBook(id);
+    // Manual completion needs the actual page count even before first open.
+    if (completed) {
+      const opened = await rpc('open', { file: book.path });
+      book = await identifyBook(id, opened.identity); book.pageCount = opened.names.length;
+    } else book = await identifyBook(id);
     const saved = reading.get(book.contentId);
-    await reading.record(book.contentId, { progress: { page: 0, panel: 0, offset: 0, mode: 'page' }, pageCount: book.pageCount ?? saved.pageCount ?? 1, completed: false, unread: true, clock: saved.clock });
+    const pageCount = book.pageCount ?? saved.pageCount ?? 1;
+    await reading.record(book.contentId, { progress: { page: completed ? pageCount - 1 : 0, panel: 0, offset: completed ? 1 : 0, mode: 'page' }, pageCount, completed, unread: !completed, clock: saved.clock });
     const resetContentIds = reading.document.aliases?.[book.contentId] ?? [book.contentId];
     for (const current of state.books.filter(value => resetContentIds.includes(value.contentId))) sessions.delete(current.id);
     applyReading(book); await save(); emit('library', state); void reading.sync(); return { ...book, resetContentIds };
+  };
+  handle('markUnread', id => markReading(id, false));
+  handle('markRead', id => markReading(id, true));
+  handle('bookContextMenu', id => {
+    const book = getBook(id);
+    Menu.buildFromTemplate([{ label: 'Open file location', click: () => { void reveal(book.path).catch(error => emit('error', error.message)); } }]).popup({ window });
+  });
+  handle('revealSavedPage', file => {
+    if (!savedPages.has(file)) throw new Error('This page has not been saved in this session.');
+    return reveal(file);
   });
   handle('resolveProgress', async (id, eventId, revision) => {
     const book = await identifyBook(id);
@@ -234,7 +254,8 @@ else {
   handle('savePage', async (id, page) => {
     const book = getBook(id);
     const original = await rpc('original', { file: book.path, page });
-    return saveOriginalPage({ ...original, title: book.title, folder: state.settings.savePageFolder });
+    const result = await saveOriginalPage({ ...original, title: book.title, folder: state.settings.savePageFolder });
+    savedPages.add(result.path); return result;
   });
   handle('favorite', async id => {
     const book = getBook(id); book.favorite = !book.favorite;

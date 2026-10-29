@@ -93,3 +93,9 @@ The Electron integration suite has 15 scenarios. It exercises native folder sele
 The final Windows distribution is tested with the same scenarios against the packaged executable and its bundled native dependencies. The Linux tar archive is inspected for the expected Linux x64 native libraries, pinned model hashes, matching application code, and executable permissions on `panel-reader`, `chrome-sandbox`, and `chrome_crashpad_handler`. Archive inspection is not a substitute for execution on CachyOS.
 
 The app uses a sandboxed renderer with a narrow preload bridge, no Node integration in the page, blocked external navigation, and custom protocols restricted to selected library IDs. Archive member names never become extraction paths: decompression happens in memory. Heavy decompression, image processing and model inference run in a worker thread. Neural models are loaded from bundled, pinned artifacts; no remote Python code is executed.
+
+## 0.3.9 regression checks
+
+Large stored and compressed ZIP entries are read repeatedly and concurrently; worker info/image requests are checked after extracting the first large page. This reproduces the shared FileHandle closure from 0.3.8 and verifies the chunked reader fix. Progress tests cover transient incomplete snapshots, recovery of this installation’s broken/missing shared snapshot, and separate reporting of network read failures and invalid documents. The Mac SMB report itself still needs its device snapshots to identify the original failure.
+
+Desktop checks cover manual read/unread on unopened comics, cross-device manual completion, upload visibility, per-book format labels, folder-name tooltips, native context-menu file reveal, and clickable saved-file destinations in clean fullscreen. File reveal is intercepted in isolated tests so Explorer/Finder is not opened by the suite.

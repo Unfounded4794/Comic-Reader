@@ -34,11 +34,11 @@ try {
     const document = JSON.parse(await fs.readFile(path.join(data, 'reading-progress.json'), 'utf8'));
     expect(document.entries[book.contentId][0].id).toBe(legacyRecord.event.id); expect(document.entries[legacyId][0].id).toBe(legacyRecord.event.id);
   });
-  await check('the library has no slogans or idle file-type advertising', async () => {
+  await check('the library has no slogans and shows each comic format', async () => {
     await expect(page.locator('body')).not.toContainText('Local. Offline. Yours.'); await expect(page.locator('body')).not.toContainText('Made for the art');
     await expect(page.locator('.format-tags')).toHaveCount(0);
     await page.getByLabel('Search comics').fill('Existing');
-    await expect(page.locator('.book-meta')).not.toContainText(/CBZ|CBR|JPG|PNG/);
+    await expect(page.locator('.book-meta')).toContainText('CBZ');
     await page.getByLabel('Search comics').fill('');
   });
   await check('discovered comics appear while another folder is still waiting on the network', async () => {
