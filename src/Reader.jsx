@@ -1,7 +1,7 @@
 import React, { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 const imageUrl = (id, page, suffix = 'image') => `comic://book/${id}/${page}/${suffix}`;
 export { imageUrl };
-export const Reader = forwardRef(function Reader({ book, page, info, panels, panel, settings, zoom, onPage, onOffset, onError }, forwarded) {
+export const Reader = forwardRef(function Reader({ book, page, info, panels, panel, settings, zoom, onPage, onOffset, onEnd, onError }, forwarded) {
   const maskId = useId();
   const viewport = useRef(), drag = useRef(), [size, setSize] = useState({ width: 1000, height: 700 });
   const guided = settings.mode === 'guided', webtoon = settings.mode === 'webtoon';
@@ -10,6 +10,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
   const layoutKey = useRef('');
   const pageAnchor = useRef(null), previousLayout = useRef(null);
   const layoutScroll = useRef(null);
+  const scrollInputUntil = useRef(0);
   const previousGuided = useRef(false);
   const [webInfo, setWebInfo] = useState({});
   const webPosition = useRef({ page, offset: book.progress?.offset ?? 0 }), webTarget = useRef(null), webAnchor = useRef(null);
@@ -30,7 +31,7 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
     observer.observe(viewport.current); return () => observer.disconnect();
   }, []);
   useImperativeHandle(forwarded, () => ({
-    scroll(dx, dy) { viewport.current?.scrollBy({ left: dx, top: dy, behavior: settings.smoothScroll ? 'smooth' : 'instant' }); },
+    scroll(dx, dy) { scrollInputUntil.current = performance.now() + 2000; viewport.current?.scrollBy({ left: dx, top: dy, behavior: settings.smoothScroll ? 'smooth' : 'instant' }); },
     position() { return webtoon ? currentWebPosition() : { page, offset: 0 }; },
     goToPage(target) {
       if (webtoon) {
@@ -92,24 +93,33 @@ export const Reader = forwardRef(function Reader({ book, page, info, panels, pan
     webAnchor.current = null;
     if (webInfo[position.page]) webTarget.current = null;
   }, [webtoon, book.id, webInfo, size.width, settings.webtoonWidth, settings.fit, zoom]);
+  function reportEnd() {
+    const element = viewport.current;
+    onEnd?.(!!(webtoon && webInfo[book.names.length - 1] && !webTarget.current && element.clientHeight > 0 && element.scrollTop + element.clientHeight >= element.scrollHeight - 2));
+  }
+  useEffect(() => {
+    const frame = requestAnimationFrame(reportEnd); return () => cancelAnimationFrame(frame);
+  }, [webtoon, webInfo, size, book.id, settings.webtoonWidth, zoom]);
   const onScroll = () => {
     const element = viewport.current;
+    reportEnd();
     if (webtoon) {
       if (webTarget.current) return;
       const position = currentWebPosition();
       webPosition.current = position;
-      onPage(position.page); onOffset(position.offset);
+      onPage(position.page); onOffset(position.offset, performance.now() < scrollInputUntil.current);
     } else {
-      onOffset(element.scrollTop / Math.max(1, element.scrollHeight - element.clientHeight));
       const generated = layoutScroll.current && Math.abs(element.scrollLeft - layoutScroll.current.left) < 1 && Math.abs(element.scrollTop - layoutScroll.current.top) < 1;
+      onOffset(element.scrollTop / Math.max(1, element.scrollHeight - element.clientHeight), !generated && !guided && performance.now() < scrollInputUntil.current);
       if (!guided && !generated) pageAnchor.current = { x: (element.scrollLeft + size.width / 2 - left) / drawnW, y: (element.scrollTop + size.height / 2 - top) / drawnH };
     }
   };
   const webtoonBaseWidth = settings.fit === 'width' ? availableW : Math.min(availableW, settings.webtoonWidth);
   const webtoonDrawWidth = Math.max(120, webtoonBaseWidth * zoom);
   return <div ref={viewport} className={`reading-viewport ${guided ? 'guided' : ''} ${webtoon ? 'webtoon' : ''}`} style={{ background: settings.background }} onScroll={onScroll}
-    onPointerDown={event => { if (event.button !== 0 || webtoon) return; drag.current = { x: event.clientX, y: event.clientY, left: viewport.current.scrollLeft, top: viewport.current.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); }}
-    onPointerMove={event => { if (drag.current) { viewport.current.scrollLeft = drag.current.left - event.clientX + drag.current.x; viewport.current.scrollTop = drag.current.top - event.clientY + drag.current.y; } }}
+    onWheel={() => { scrollInputUntil.current = performance.now() + 2000; }} onTouchMove={() => { scrollInputUntil.current = performance.now() + 2000; }}
+    onPointerDown={event => { scrollInputUntil.current = performance.now() + 2000; if (event.button !== 0 || webtoon) return; drag.current = { x: event.clientX, y: event.clientY, left: viewport.current.scrollLeft, top: viewport.current.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); }}
+    onPointerMove={event => { if (drag.current) { scrollInputUntil.current = performance.now() + 2000; viewport.current.scrollLeft = drag.current.left - event.clientX + drag.current.x; viewport.current.scrollTop = drag.current.top - event.clientY + drag.current.y; } }}
     onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
     {webtoon ? <div className="webtoon-stack" style={{ width: webtoonDrawWidth, gap: settings.webtoonGap }}>
       {book.names.map((name, index) => <WebtoonPage key={`${book.id}-${index}`} id={book.id} page={index} name={name} root={viewport} width={webtoonDrawWidth} onInfo={value => receiveWebInfo(index, value)} onError={onError}/>)}

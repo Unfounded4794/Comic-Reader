@@ -7,6 +7,7 @@ import { scanFolders, bookId } from '../core/library.mjs';
 import { COMIC_RE, IMAGE_RE } from '../core/archive.mjs';
 import { normalizeSettings } from '../core/settings.mjs';
 import { saveOriginalPage } from '../core/page-export.mjs';
+import { ReadingProgress, fingerprint, legacyCompleted, readingComplete } from '../core/reading-progress.mjs';
 const appId = 'org.panelreader.desktop';
 if (process.platform === 'win32') app.setAppUserModelId(appId);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,6 +17,8 @@ if (process.env.PANEL_READER_DATA) app.setPath('userData', path.resolve(process.
 protocol.registerSchemesAsPrivileged([{ scheme: 'comic', privileges: { standard: true, secure: true, supportFetchAPI: true } }, { scheme: 'reader', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let window, worker, scanTimer, scanning, state = { folders: [], books: [], settings: normalizeSettings(), lastBook: null };
 let saveQueue = Promise.resolve(); let serial = 0; const calls = new Map();
+let reading, syncTimer, indexing, flushClose, indexAgain = false;
+const identities = new Map(), sessions = new Map();
 const statePath = () => path.join(app.getPath('userData'), 'library.json');
 function save() {
   const content = JSON.stringify(state);
@@ -32,6 +35,51 @@ function rpc(method, args) {
   return new Promise((resolve, reject) => { calls.set(id, { resolve, reject }); worker.postMessage({ id, method, args }); });
 }
 function getBook(id) { const book = state.books.find(b => b.id === id); if (!book) throw new Error('Comic is not in the library.'); return book; }
+function applyReading(book) {
+  const value = reading?.get(book.contentId);
+  if (value?.heads.length) Object.assign(book, { progress: value.progress, completed: value.completed, pageCount: value.pageCount, lastRead: value.lastRead, isNew: false, readingRevision: value.revision, readingConflicts: value.conflicts });
+}
+async function identifyBook(id) {
+  const book = getBook(id), file = book.path;
+  if (identities.has(file)) return identities.get(file);
+  const task = (async () => {
+    const identity = await fingerprint(file, book);
+    const current = state.books.find(item => item.id === id && item.path === file);
+    if (!current) return;
+    if (current.contentId && current.contentId !== identity.contentId) {
+      // A new edition at the same path is a different book. Its old history
+      // remains in the content store and must not migrate to the replacement.
+      delete current.progress; delete current.lastRead; delete current.pageCount;
+      delete current.readingRevision; delete current.readingConflicts;
+      current.completed = false; current.isNew = true;
+    }
+    Object.assign(current, identity);
+    if (current.progressSeeded !== identity.contentId) {
+      if (current.lastRead && current.progress && current.pageCount) {
+        const p = current.progress;
+        await reading.record(identity.contentId, { progress: { page: p.page, panel: p.panel ?? 0, offset: p.offset ?? 0, mode: p.mode ?? 'page' }, completed: legacyCompleted(current), pageCount: current.pageCount, at: current.lastRead });
+      }
+      current.progressSeeded = identity.contentId;
+    }
+    applyReading(current);
+    return current;
+  })().finally(() => identities.delete(file));
+  identities.set(file, task); return task;
+}
+function indexBooks() {
+  if (!reading) return;
+  if (indexing) { indexAgain = true; return indexing; }
+  indexing = (async () => {
+    // Sequential streaming keeps large libraries from flooding a network disk.
+    for (const book of [...state.books]) {
+      if (book.missing || !state.books.some(item => item.id === book.id)) continue;
+      try { await identifyBook(book.id); }
+      catch (error) { if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) console.error('Could not identify comic:', error.message); }
+    }
+    await save(); emit('library', state); void reading.sync();
+  })().catch(error => emit('error', error.message)).finally(() => { indexing = null; if (indexAgain) { indexAgain = false; void indexBooks(); } });
+  return indexing;
+}
 async function addPaths(files) {
   if (!Array.isArray(files) || files.length > 500) throw new Error('Select at most 500 files.');
   const added = [];
@@ -43,7 +91,7 @@ async function addPaths(files) {
     if (!book) { book = { id, path: file, folder: stat.isDirectory() ? file : path.dirname(file), source: 'opened', title: stat.isDirectory() ? path.basename(file) : path.basename(file, path.extname(file)), format: stat.isDirectory() ? 'IMAGES' : path.extname(file).slice(1).toUpperCase(), added: Date.now(), size: stat.size, modified: stat.mtimeMs, isNew: true }; state.books.push(book); }
     added.push(book);
   }
-  await save(); emit('library', state); return added;
+  await save(); emit('library', state); void indexBooks(); return added;
 }
 async function rescan() {
   if (scanning) return scanning;
@@ -54,7 +102,8 @@ async function rescan() {
     const current = new Map(state.books.map(b => [b.id, b]));
     state.books = result.books.map(b => { const latest = current.get(b.id); current.delete(b.id); return latest ? { ...b, progress: latest.progress, isNew: latest.isNew, lastRead: latest.lastRead, favorite: latest.favorite } : b; });
     state.books.push(...current.values());
-    await save(); emit('library', state); return { ...result, books: state.books };
+    state.books.forEach(applyReading);
+    await save(); emit('library', state); void indexBooks(); return { ...result, books: state.books };
   })().finally(() => { scanning = null; });
   return scanning;
 }
@@ -80,6 +129,18 @@ else {
     state.books = state.books.map(book => book.root ? { ...book, source: 'library', folder: book.folder || path.dirname(book.path), relativeDir: book.relativeDir ?? path.relative(book.root, path.dirname(book.path)) } : { ...book, source: book.source || 'opened', folder: book.folder || path.dirname(book.path) });
   }
   catch (e) { if (e.code !== 'ENOENT') console.error('Could not restore library:', e.message); }
+  state.books.forEach(book => { book.completed = legacyCompleted(book); });
+  reading = new ReadingProgress({ localFile: path.join(app.getPath('userData'), 'reading-progress.json'), sharedFolder: () => state.settings.progressFolder,
+    onChange(keys, remote) {
+      const affected = state.books.filter(book => keys.includes(book.contentId));
+      affected.forEach(applyReading); void save().catch(error => emit('error', error.message)); emit('library', state);
+      if (remote) for (const book of affected) {
+        const session = sessions.get(book.id), value = reading.get(book.contentId);
+        if (session && value.heads.some(head => Object.entries(head.clock).some(([device, count]) => (session.clock[device] ?? 0) < count))) emit('remoteProgress', { id: book.id });
+      }
+    }, onStatus(status) { state.syncStatus = status; emit('syncStatus', status); },
+  });
+  await reading.init(); state.books.forEach(applyReading);
   worker = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { models: app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(root, 'models'), cache: path.join(app.getPath('userData'), 'cache') } });
   worker.on('message', ({ id, result, error }) => { const call = calls.get(id); if (!call) return; calls.delete(id); error ? call.reject(new Error(error)) : call.resolve(result); });
   worker.on('error', e => { for (const call of calls.values()) call.reject(e); calls.clear(); emit('error', e.message); });
@@ -101,6 +162,18 @@ else {
   session.defaultSession.setPermissionRequestHandler((_, __, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   handle('state', () => state);
+  handle('chooseProgressFolder', async () => {
+    const result = await dialog.showOpenDialog(window, { title: 'Choose the same shared progress folder on each device', defaultPath: state.settings.progressFolder || undefined, properties: ['openDirectory', 'createDirectory'] });
+    if (result.canceled) return null;
+    state.settings.progressFolder = result.filePaths[0]; await save(); void reading.sync(); return state.settings;
+  });
+  handle('stopSharing', async () => { state.settings.progressFolder = ''; await save(); await reading.sync(); return state.settings; });
+  handle('syncProgress', () => reading.sync());
+  handle('resolveProgress', async (id, eventId, revision) => {
+    const book = await identifyBook(id);
+    const result = await reading.resolve(book.contentId, eventId, revision);
+    applyReading(book); await save(); void reading.sync(); return result;
+  });
   handle('chooseSaveFolder', async () => {
     const result = await dialog.showOpenDialog(window, { title: 'Choose a folder for saved pages', defaultPath: state.settings.savePageFolder || undefined, properties: ['openDirectory', 'createDirectory'] });
     return result.canceled ? null : result.filePaths[0];
@@ -150,7 +223,15 @@ else {
   });
   handle('rescan', rescan);
   handle('open', async id => {
-    const book = getBook(id), result = await rpc('open', { file: book.path });
+    await Promise.race([reading.sync(), new Promise(resolve => setTimeout(resolve, 1200))]);
+    let book = await identifyBook(id), saved = reading.get(book.contentId);
+    if (saved.conflicts.length) return { id, title: book.title, conflicts: saved.conflicts, revision: saved.revision };
+    const result = await rpc('open', { file: book.path });
+    // Opening a large archive can overlap an exchange or a library rescan.
+    // Bind the session to the exact bookmark returned to the reader.
+    book = getBook(id); saved = reading.get(book.contentId); applyReading(book);
+    if (saved.conflicts.length) return { id, title: book.title, conflicts: saved.conflicts, revision: saved.revision };
+    sessions.set(id, { clock: saved.clock, completed: saved.completed ?? book.completed ?? false, lastProgress: saved.progress, contentId: book.contentId });
     book.pageCount = result.names.length; book.isNew = false; book.lastRead = Date.now(); state.lastBook = id; await save();
     return { ...book, ...result };
   });
@@ -161,8 +242,17 @@ else {
   handle('progress', async (id, progress) => {
     const book = getBook(id);
     if (!progress || !Number.isInteger(progress.page) || progress.page < 0 || progress.page >= (book.pageCount ?? 1) || !Number.isFinite(progress.panel) || !Number.isFinite(progress.offset)) throw new Error('Invalid reading position.');
-    book.progress = { page: progress.page, panel: Math.max(0, Math.floor(progress.panel)), offset: Math.max(0, Math.min(1, progress.offset)) }; book.lastRead = Date.now(); await save();
+    const session = sessions.get(id);
+    if (!session || session.contentId !== book.contentId) throw new Error('Reopen the comic to save its position.');
+    const position = { page: progress.page, panel: Math.max(0, Math.floor(progress.panel)), offset: Math.max(0, Math.min(1, progress.offset)), mode: ['page', 'guided', 'webtoon'].includes(progress.mode) ? progress.mode : 'page' };
+    const completed = session.completed || (progress.ready !== false && readingComplete({ ...position, atEnd: progress.atEnd === true }, book.pageCount, progress.panelCount));
+    if (JSON.stringify(position) === JSON.stringify(session.lastProgress) && completed === session.completed) return { progress: position, completed, readingRevision: reading.get(book.contentId).revision };
+    const result = await reading.record(book.contentId, { progress: position, completed, pageCount: book.pageCount, clock: session.clock });
+    session.clock = result.event.clock; session.completed = completed; session.lastProgress = position;
+    book.progressSeeded = book.contentId; applyReading(book); await save(); void reading.sync();
+    return { progress: position, completed, readingRevision: result.revision, readingConflicts: result.conflicts, lastRead: result.event.at };
   });
+  handle('flushed', () => flushClose?.());
   handle('fullscreen', value => { window.setFullScreen(typeof value === 'boolean' ? value : !window.isFullScreen()); return window.isFullScreen(); });
   handle('quit', () => app.quit());
   window = new BrowserWindow({ width: 1440, height: 960, minWidth: 760, minHeight: 540, backgroundColor: '#111315', title: 'Panel Reader', autoHideMenuBar: true, webPreferences: { preload: path.join(root, 'electron/preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
@@ -171,20 +261,40 @@ else {
     window.setAppDetails({ appId, appIconPath: executable, relaunchCommand: `"${executable}"`, relaunchDisplayName: 'Panel Reader' });
   }
   window.setMenu(null);
+  let closing = false;
+  function requestClose() {
+    if (flushClose) return;
+    const timer = setTimeout(() => flushClose?.(), 2500);
+    flushClose = () => { if (closing) return; closing = true; clearTimeout(timer); app.quit(); };
+    emit('flush');
+  }
+  window.on('close', event => {
+    if (closing) return;
+    event.preventDefault(); requestClose();
+  });
+  window.on('focus', () => { void reading.sync(); });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.on('enter-full-screen', () => emit('fullscreen', true));
   window.on('leave-full-screen', () => emit('fullscreen', false));
   await window.loadURL(process.env.PANEL_READER_DEV || 'reader://app/');
   scheduleScan();
+  syncTimer = setInterval(() => { void reading.sync(); }, 10000);
+  void indexBooks(); void reading.sync();
   const initial = process.argv.filter(a => readableFile(a) && path.isAbsolute(a));
   if (initial.length) { try { const books = await addPaths(initial); emit('open', books[0].id); } catch (e) { emit('error', e.message); } }
   app.on('window-all-closed', () => app.quit());
   let finishing = false;
   app.on('before-quit', event => {
     if (finishing) return;
-    event.preventDefault(); finishing = true; clearInterval(scanTimer);
-    save().catch(console.error).finally(() => { worker?.terminate(); app.quit(); });
+    if (!closing) { event.preventDefault(); requestClose(); return; }
+    event.preventDefault(); finishing = true; clearInterval(scanTimer); clearInterval(syncTimer);
+    (async () => {
+      await reading.flush(); await save();
+      // Give the last bookmark a chance to publish, without holding shutdown
+      // hostage to an unavailable network drive. The local outbox is durable.
+      await Promise.race([(async () => { await reading.sync(); if (reading.syncedGeneration !== reading.generation) await reading.sync(); })(), new Promise(resolve => setTimeout(resolve, 1500))]);
+    })().catch(console.error).finally(() => { worker?.terminate(); app.quit(); });
   });
   }).catch(error => { console.error(error); dialog.showErrorBox('Panel Reader could not start', error.message); app.exit(1); });
 }

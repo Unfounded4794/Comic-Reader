@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS = {
   background: '#141619', scrollAmount: 160, smoothScroll: true, fit: 'page', panelFit: 'page',
   mode: 'page', direction: 'ltr', showCounter: true, panelPadding: 3, panelDim: 0.84,
   detectionThreshold: 0.45, shapeDetection: true, autoScanMinutes: 5,
-  webtoonWidth: 900, webtoonGap: 0, autoNextComic: false, savePageFolder: '',
+  webtoonWidth: 900, webtoonGap: 0, autoNextComic: false, savePageFolder: '', progressFolder: '',
   shortcuts: Object.fromEntries(ACTIONS.map(([id, , key]) => [id, key])),
 };
 export function normalizeSettings(input = {}) {
@@ -43,6 +43,7 @@ export function normalizeSettings(input = {}) {
   if (['page', 'guided', 'webtoon'].includes(input.mode)) out.mode = input.mode;
   if (['ltr', 'rtl'].includes(input.direction)) out.direction = input.direction;
   if (typeof input.savePageFolder === 'string' && input.savePageFolder.length < 32768 && !input.savePageFolder.includes('\0')) out.savePageFolder = input.savePageFolder;
+  if (typeof input.progressFolder === 'string' && input.progressFolder.length < 32768 && !input.progressFolder.includes('\0')) out.progressFolder = input.progressFolder;
   for (const [id] of ACTIONS) if (typeof input.shortcuts?.[id] === 'string' && input.shortcuts[id].length < 90) out.shortcuts[id] = input.shortcuts[id];
   return out;
 }

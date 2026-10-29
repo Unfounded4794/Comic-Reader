@@ -1,3 +1,4 @@
+import { legacyCompleted } from './reading-state.mjs';
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 export const naturalTitle = (a, b) => collator.compare(a.title, b.title);
 export const folderKey = value => String(value ?? '').replaceAll('\\', '/').replace(/\/$/, '').toLocaleLowerCase();
@@ -98,9 +99,8 @@ export function seriesContinuations(books) {
     const read = issues.map((issue, index) => ({ issue, index })).filter(({ issue }) => issue.lastRead);
     if (!read.length) continue;
     const recent = read.reduce((best, value) => value.issue.lastRead > best.issue.lastRead ? value : best);
-    const progress = recent.issue.progress;
-    const unfinished = !progress || !recent.issue.pageCount || progress.page < recent.issue.pageCount - 1 || (recent.issue.pageCount === 1 && (progress.offset ?? 0) < .98);
-    const nextUnread = issues.slice(recent.index + 1).find(issue => !issue.lastRead);
+    const unfinished = !legacyCompleted(recent.issue);
+    const nextUnread = issues.slice(recent.index + 1).find(issue => !legacyCompleted(issue));
     const next = unfinished || !nextUnread ? recent.issue : nextUnread;
     result.push({ series: folderName(next.folder || next.root), previous: recent.issue, next, resume: next.id === recent.issue.id, lastRead: recent.issue.lastRead });
   }

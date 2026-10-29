@@ -1,7 +1,7 @@
 {
   "name": "panel-reader",
   "productName": "Panel Reader",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "An offline comic reader with guided panels and continuous webtoon reading.",
   "author": "Panel Reader contributors",
   "license": "AGPL-3.0-only",
@@ -16,6 +16,7 @@
     "test:desktop": "node scripts/test-desktop.mjs",
     "test:navigation": "node scripts/test-navigation.mjs",
     "test:features": "node scripts/test-features.mjs",
+    "test:progress": "node scripts/test-progress.mjs",
     "models": "node scripts/download-models.mjs",
     "pack:win": "npm run build && electron-builder --config electron-builder.config.cjs --win portable nsis --x64 --publish never",
     "pack:linux": "npm run build && electron-builder --config electron-builder.config.cjs --linux AppImage tar.gz --x64 --publish never",

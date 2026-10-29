@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ACTIONS, DEFAULT_SETTINGS, keyChord } from '../core/settings.mjs';
 import { Button, Icon } from './icons.jsx';
-export default function Preferences({ settings, update, folders, onRemoveFolder, onChangeFolder, onChooseSaveFolder, onClose, initialTab = 'reading' }) {
+export default function Preferences({ settings, update, folders, onRemoveFolder, onChangeFolder, onChooseSaveFolder, onChooseProgressFolder, onStopSharing, syncStatus, onClose, initialTab = 'reading' }) {
   const [tab, setTab] = useState(initialTab), [recording, setRecording] = useState(null), [message, setMessage] = useState(''), [filter, setFilter] = useState('');
   const dialog = useRef();
   useEffect(() => { dialog.current.focus(); }, []);
@@ -50,6 +50,7 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
       </>}
       {tab === 'library' && <>
         <h3>Keep your collection close.</h3>
+        <div className="setting-row progress-setting"><span>Share reading progress<small>Choose the same network folder on each device. Comics can be local copies or on a shared drive; names and folders can differ.</small><small className="saved-pages-path">{settings.progressFolder || 'Saved on this device only'}</small>{settings.progressFolder && <small role="status" className={`sync-status ${syncStatus?.state ?? 'pending'}`}>{syncStatus?.message || 'Connecting to the shared folder…'}</small>}</span><div className="progress-folder-actions"><Button icon="folder" onClick={onChooseProgressFolder}>{settings.progressFolder ? 'Change shared folder' : 'Choose shared folder'}</Button>{settings.progressFolder && <button className="muted" onClick={onStopSharing}>Stop sharing</button>}</div></div>
         <label className="setting-row"><span>Automatic rescan<small>Minutes between scans. Set to 0 for manual rescans only.</small></span><input aria-label="Automatic rescan minutes" type="number" min="0" max="120" value={settings.autoScanMinutes} onChange={e => set('autoScanMinutes', +e.target.value)}/></label>
         <Toggle label="Continue between comics" description="Cross the first or last page to read the previous or next comic in this folder." checked={settings.autoNextComic} onChange={v => set('autoNextComic', v)}/>
         <h3>Watched folders</h3>{folders.length ? folders.map(folder => <div className="folder-setting" key={folder}><Icon name="folder"/><span>{folder}</span><Button onClick={() => onChangeFolder(folder)}>Change…</Button><Button onClick={() => onRemoveFolder(folder)}>Remove</Button></div>) : <p className="muted">Add a library folder to find CBZ and CBR files, including subfolders.</p>}

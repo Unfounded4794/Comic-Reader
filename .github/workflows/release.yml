@@ -60,10 +60,14 @@ jobs:
       - run: npm run build
       - name: Desktop feature checks on Windows and Apple Silicon
         if: runner.os != 'Linux'
-        run: npm run test:features
+        run: |
+          npm run test:features
+          npm run test:progress
       - name: Desktop feature checks on Linux
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:features
+        run: |
+          xvfb-run -a npm run test:features
+          xvfb-run -a npm run test:progress
       - run: npm run ${{ matrix.command }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

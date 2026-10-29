@@ -16,6 +16,8 @@ const image = await sharp(Buffer.from('<svg width="800" height="1200"><rect widt
 async function archive(file) {
   const zip = new yazl.ZipFile(), output = createWriteStream(file); zip.outputStream.pipe(output);
   for (let i = 1; i <= 3; i++) zip.addBuffer(image, `${i}.png`);
+  // Distinct issues must have distinct bytes now that bookmarks follow content.
+  zip.addBuffer(Buffer.from(path.relative(root, file)), 'ComicInfo.xml');
   zip.end(); await finished(output);
 }
 for (let i = 1; i <= 12; i++) {
