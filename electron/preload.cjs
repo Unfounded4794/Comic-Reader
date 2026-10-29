@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('reader', {
   state: () => invoke('state'),
   chooseSaveFolder: () => invoke('chooseSaveFolder'), savePage: (id, page) => invoke('savePage', id, page),
   favorite: id => invoke('favorite', id),
+  markUnread: id => invoke('markUnread', id), cancelScan: () => invoke('cancelScan'), view: value => invoke('view', value),
   chooseProgressFolder: () => invoke('chooseProgressFolder'), stopSharing: () => invoke('stopSharing'), syncProgress: () => invoke('syncProgress'),
   resolveProgress: (id, eventId, revision) => invoke('resolveProgress', id, eventId, revision), flushed: () => invoke('flushed'),
   chooseComic: () => invoke('chooseComic'), chooseFolder: () => invoke('chooseFolder'), chooseImages: () => invoke('chooseImages'),
@@ -14,7 +15,7 @@ contextBridge.exposeInMainWorld('reader', {
   settings: settings => invoke('settings', settings), progress: (id, progress) => invoke('progress', id, progress),
   fullscreen: value => invoke('fullscreen', value), quit: () => invoke('quit'),
   on: (event, callback) => {
-    if (!['library', 'fullscreen', 'open', 'error', 'syncStatus', 'remoteProgress', 'flush'].includes(event)) return () => {};
+    if (!['library', 'libraryBatch', 'fullscreen', 'open', 'error', 'syncStatus', 'remoteProgress', 'flush', 'scanProgress'].includes(event)) return () => {};
     const handler = (_, data) => callback(data);
     ipcRenderer.on('reader:' + event, handler);
     return () => ipcRenderer.removeListener('reader:' + event, handler);

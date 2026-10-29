@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
-const imageUrl = (id, page, suffix = 'image') => `comic://book/${id}/${page}/${suffix}`;
+const imageUrl = (id, page, suffix = 'image', book) => `comic://book/${id}/${page}/${suffix}${suffix === 'cover' && book ? `?v=${book.size ?? 0}-${book.modified ?? 0}` : ''}`;
 export { imageUrl };
 export const Reader = forwardRef(function Reader({ book, page, info, panels, panel, settings, zoom, onPage, onOffset, onEnd, onError }, forwarded) {
   const maskId = useId();

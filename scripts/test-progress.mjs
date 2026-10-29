@@ -107,13 +107,30 @@ try {
     await go(a, 4); await expect.poll(async () => (await book(a, 'Issue 01')).completed).toBe(true);
     await library(a); await a.page.getByLabel('Search comics').fill('Issue 01');
     const card = a.page.locator('.book-card').filter({ hasText: 'Issue 01' }); await expect(card).toHaveClass(/is-read/);
-    await expect(card.locator('.read-badge')).toHaveText('Read');
+    await expect(card.locator('..').getByRole('button', { name: 'Mark unread: Issue 01', exact: true })).toBeVisible();
     expect(await card.locator('.cover>img').evaluate(el => getComputedStyle(el).filter)).toBe('grayscale(1)');
     await a.page.getByLabel('Search comics').fill('Issue');
     await a.page.screenshot({ path: 'validation/ui-reading-progress.png' });
     await a.page.getByLabel('Search comics').fill('');
     await expect(a.page.locator('.next-card').filter({ hasText: 'Issue 02' })).toHaveCount(1);
     await sync(a, b); expect((await book(b, 'Renamed volume')).completed).toBe(true);
+  });
+  await check('hovering the read badge offers Mark unread and Update progress shares the reset', async () => {
+    await a.page.getByLabel('Search comics').fill('Issue 01');
+    const badge = a.page.getByRole('button', { name: 'Mark unread: Issue 01', exact: true });
+    await badge.hover(); await expect(badge.locator('.unread-label')).toBeVisible();
+    await a.page.screenshot({ path: 'validation/ui-mark-unread.png' }); await badge.click();
+    await expect.poll(async () => (await book(a, 'Issue 01')).completed).toBe(false);
+    expect((await book(a, 'Issue 01')).progress).toBeUndefined(); expect((await book(a, 'Issue 01')).lastRead).toBeUndefined();
+    await expect(a.page.locator('.book-card')).not.toHaveClass(/is-read/);
+    await a.page.getByRole('button', { name: 'Update progress', exact: true }).click();
+    await expect(a.page.locator('.toast')).toContainText('Reading progress is shared.');
+    await library(b); await b.page.getByRole('button', { name: 'Update progress', exact: true }).click();
+    await expect.poll(async () => (await book(b, 'Renamed volume')).progress).toBeUndefined();
+    expect((await book(b, 'Renamed volume')).completed).toBe(false);
+    await open(a, 'Issue 01'); await expect(a.page.locator('.page-count')).toContainText('Page 1');
+    await go(a, 4); await expect.poll(async () => (await book(a, 'Issue 01')).completed).toBe(true);
+    await sync(a, b); await library(a);
   });
   await check('guided completion waits for the final panel; reopening preserves it', async () => {
     const issue = await book(a, 'Issue 02');

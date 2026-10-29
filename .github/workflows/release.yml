@@ -63,11 +63,13 @@ jobs:
         run: |
           npm run test:features
           npm run test:progress
+          npm run test:network
       - name: Desktop feature checks on Linux
         if: runner.os == 'Linux'
         run: |
           xvfb-run -a npm run test:features
           xvfb-run -a npm run test:progress
+          xvfb-run -a npm run test:network
       - run: npm run ${{ matrix.command }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

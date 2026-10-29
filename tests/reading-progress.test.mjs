@@ -131,6 +131,29 @@ test('concurrent updates to different comics never discard each other', async t 
   assert.equal(a.get(key).progress.page, 12); assert.equal(a.get(other).progress.page, 18);
   assert.equal(b.get(key).progress.page, 12); assert.equal(b.get(other).progress.page, 18);
 });
+test('Mark unread resets completion and bookmark across devices without allowing a stale snapshot to restore it', async t => {
+  const { device } = await fixture(t), a = await device('a'), b = await device('b');
+  await record(a, 49, {}, true); await a.sync(); await b.sync();
+  await a.record(key, { progress: position(0), pageCount: 50, completed: false, unread: true, clock: a.get(key).clock });
+  await a.sync({ force: true }); await b.sync(); await a.sync();
+  assert.equal(b.get(key).completed, false); assert.equal(b.get(key).unread, true); assert.equal(b.get(key).progress.page, 0); assert.equal(b.get(key).conflicts.length, 0);
+  await record(b, 5); await b.sync(); await a.sync(); assert.equal(a.get(key).unread, false); assert.equal(a.get(key).progress.page, 5);
+});
+test('old and indexed identifiers share causal history, resets, and future reading updates', async t => {
+  const { device } = await fixture(t), a = await device('a'), b = await device('b'), indexed = `sha256:${'c'.repeat(64)}`;
+  await record(a, 23); await a.linkKeys(indexed, key); await a.sync(); await b.sync();
+  assert.equal(b.get(indexed).progress.page, 23);
+  await b.record(indexed, { progress: position(24), pageCount: 50, completed: false, clock: b.get(indexed).clock }); await b.sync(); await a.sync();
+  assert.equal(a.get(key).progress.page, 24); assert.equal(a.get(indexed).conflicts.length, 0);
+  await a.record(key, { progress: position(0), pageCount: 50, completed: false, unread: true, clock: a.get(key).clock }); await a.sync(); await b.sync();
+  assert.equal(b.get(indexed).unread, true); assert.equal(b.get(indexed).conflicts.length, 0);
+});
+test('unchanged automatic exchanges avoid rewrites; a manual update forces an upload', async t => {
+  const { shared, device } = await fixture(t), a = await device('a'); await record(a, 12); await a.sync();
+  const file = path.join(shared, '.panel-reader-progress', `${a.document.device}.json`), before = (await fs.stat(file)).mtimeMs;
+  await new Promise(resolve => setTimeout(resolve, 20)); await a.sync(); assert.equal((await fs.stat(file)).mtimeMs, before);
+  await a.sync({ force: true }); assert.ok((await fs.stat(file)).mtimeMs > before);
+});
 test('completion respects the final guided panel and actual continuous-scroll bottom', () => {
   assert.equal(readingComplete(position(9), 10), true);
   assert.equal(readingComplete(position(8), 10), false);

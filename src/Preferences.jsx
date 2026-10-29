@@ -18,11 +18,11 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
     if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
     if (e.key === 'Tab') { const list = [...dialog.current.querySelectorAll('button:not(:disabled), input, select, [tabindex="0"]')]; if (e.shiftKey && document.activeElement === list[0]) { e.preventDefault(); list.at(-1)?.focus(); } else if (!e.shiftKey && document.activeElement === list.at(-1)) { e.preventDefault(); list[0]?.focus(); } }
   }}>
-    <header><div><span className="eyebrow">YOUR READER, YOUR RULES</span><h2>Preferences</h2></div><Button icon="close" title="Close preferences" onClick={onClose}/></header>
+    <header><div><h2>Preferences</h2></div><Button icon="close" title="Close preferences" onClick={onClose}/></header>
     <nav className="tabs">{[['reading','Reading'],['panels','Guided panels'],['shortcuts','Shortcuts'],['library','Library']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>
     <div className="preferences-body">
       {tab === 'reading' && <>
-        <h3>Make room for the story.</h3><p className="muted">Changes save automatically and apply to the reader immediately.</p>
+        <h3>Reading</h3><p className="muted">Changes save automatically and apply to the reader immediately.</p>
         <label className="setting-row"><span>Reading background<small>The space around the page.</small></span><div className="color-control"><code>{settings.background}</code><input aria-label="Reading background" type="color" value={settings.background} onChange={e => set('background', e.target.value)}/></div></label>
         <label className="setting-row"><span>Scroll distance<small>Pixels per Up / Down key press. These keys never turn a page.</small></span><div className="number-control"><input aria-label="Scroll distance" type="number" min="10" max="2000" value={settings.scrollAmount} onChange={e => set('scrollAmount', Number(e.target.value))}/><span>px</span></div></label>
         <Toggle label="Smooth scrolling" checked={settings.smoothScroll} onChange={v => set('smoothScroll', v)}/>
@@ -35,7 +35,7 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
         <div className="setting-row"><span>Destination folder<small>Original image files are grouped by comic. Save the current page with {settings.shortcuts.savePage || 'the reader button'}.</small><small className="saved-pages-path">{settings.savePageFolder || 'No folder selected'}</small></span><Button icon="folder" onClick={onChooseSaveFolder}>Choose saved pages folder</Button></div>
       </>}
       {tab === 'panels' && <>
-        <div className="info-banner"><Icon name="panels"/><div><strong>Local panel detection</strong><p>Panels include their speech bubbles. Missed areas are recovered as local reading regions, and switching views remembers your selected panel. Your comics stay on this computer.</p></div></div>
+        <div className="info-banner"><Icon name="panels"/><div><strong>Local panel detection</strong><p>Panels include their speech bubbles. Missed areas are recovered as local reading regions, and switching views remembers your selected panel. </p></div></div>
         <Toggle label="Refine panel boundaries" description="Use an additional model to check panel boundaries." checked={settings.shapeDetection} onChange={v => set('shapeDetection', v)}/>
         <Range label="Detection confidence" description="Lower finds more candidates. Higher reduces false panels." value={settings.detectionThreshold} min={.1} max={.9} step={.01} display={`${Math.round(settings.detectionThreshold * 100)}%`} onChange={v => set('detectionThreshold', v)}/>
         <Range label="Space around each panel" value={settings.panelPadding} min={0} max={20} step={1} display={`${settings.panelPadding}%`} onChange={v => set('panelPadding', v)}/>
@@ -49,11 +49,11 @@ export default function Preferences({ settings, update, folders, onRemoveFolder,
         <div className="shortcut-list">{ACTIONS.filter(([id, label]) => `${id} ${label}`.toLowerCase().includes(filter.toLowerCase())).map(([id, label]) => <div key={id}><span>{label}</span><button className={`binding ${recording === id ? 'recording' : ''}`} aria-label={`Shortcut for ${label}`} onClick={() => { setRecording(recording === id ? null : id); setMessage(''); }}>{recording === id ? 'Press keys…' : settings.shortcuts[id] || 'Unbound'}</button><button className="clear-binding" aria-label={`Clear shortcut for ${label}`} onClick={() => set('shortcuts', { ...settings.shortcuts, [id]: '' })}>×</button></div>)}</div>
       </>}
       {tab === 'library' && <>
-        <h3>Keep your collection close.</h3>
+        <h3>Library</h3>
         <div className="setting-row progress-setting"><span>Share reading progress<small>Choose the same network folder on each device. Comics can be local copies or on a shared drive; names and folders can differ.</small><small className="saved-pages-path">{settings.progressFolder || 'Saved on this device only'}</small>{settings.progressFolder && <small role="status" className={`sync-status ${syncStatus?.state ?? 'pending'}`}>{syncStatus?.message || 'Connecting to the shared folder…'}</small>}</span><div className="progress-folder-actions"><Button icon="folder" onClick={onChooseProgressFolder}>{settings.progressFolder ? 'Change shared folder' : 'Choose shared folder'}</Button>{settings.progressFolder && <button className="muted" onClick={onStopSharing}>Stop sharing</button>}</div></div>
         <label className="setting-row"><span>Automatic rescan<small>Minutes between scans. Set to 0 for manual rescans only.</small></span><input aria-label="Automatic rescan minutes" type="number" min="0" max="120" value={settings.autoScanMinutes} onChange={e => set('autoScanMinutes', +e.target.value)}/></label>
         <Toggle label="Continue between comics" description="Cross the first or last page to read the previous or next comic in this folder." checked={settings.autoNextComic} onChange={v => set('autoNextComic', v)}/>
-        <h3>Watched folders</h3>{folders.length ? folders.map(folder => <div className="folder-setting" key={folder}><Icon name="folder"/><span>{folder}</span><Button onClick={() => onChangeFolder(folder)}>Change…</Button><Button onClick={() => onRemoveFolder(folder)}>Remove</Button></div>) : <p className="muted">Add a library folder to find CBZ and CBR files, including subfolders.</p>}
+        <h3>Watched folders</h3>{folders.length ? folders.map(folder => <div className="folder-setting" key={folder}><Icon name="folder"/><span>{folder}</span><Button onClick={() => onChangeFolder(folder)}>Change…</Button><Button onClick={() => onRemoveFolder(folder)}>Remove</Button></div>) : <p className="muted">Add a library folder to find comics, including subfolders.</p>}
         <p className="muted">Changing a folder is useful after moving the same collection and preserves matching reading history. Removing it clears its comics from this library. Original files are never modified.</p>
       </>}
     </div><footer><span className="muted"><Icon name="check" size={14}/> Saved on this computer</span><Button className="primary" onClick={onClose}>Done</Button></footer>

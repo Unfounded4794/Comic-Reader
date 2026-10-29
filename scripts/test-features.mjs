@@ -90,6 +90,13 @@ try {
     await expect(page.locator('.toast')).toContainText('016.JPG');
     expect((await fs.readFile(path.join(saved, 'Issue 01/016.JPG'))).equals(bytes)).toBe(true);
   });
+  await check('saving a page confirms its destination in clean fullscreen', async () => {
+    await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press('F11');
+    await expect(page.locator('.reader-toolbar')).toHaveCount(0);
+    await page.keyboard.press('Control+Alt+s'); await expect(page.locator('.toast')).toBeVisible(); await expect(page.locator('.toast')).toContainText(saved);
+    await page.screenshot({ path: 'validation/ui-fullscreen-save.png' });
+    await expect(page.locator('.reader-footer')).toHaveCount(0); await page.keyboard.press('F11');
+  });
   await check('continuous reading saves the page at the viewport position', async () => {
     await goTo(1); await page.keyboard.press('t');
     await expect(page.locator('.webtoon-page[data-page="0"] img')).toHaveCount(1);

@@ -14,7 +14,7 @@ export const PanelEditor = forwardRef(function PanelEditor({ book, page, result,
   const save = async () => { setSaving(true); try { await onSave(panels); } catch (e) { onError(e.message); setSaving(false); } };
   useImperativeHandle(forwarded, () => ({ action(id) { if (id === 'editorAdd') setTool('rectangle'); if (id === 'editorPolygon') setTool('polygon'); if (id === 'editorSelect') setTool('select'); if (id === 'editorDelete') remove(); if (id === 'editorEarlier') move(-1); if (id === 'editorLater') move(1); if (id === 'editorSave') save(); if (id === 'editorFinish' && tool === 'polygon') add(points); } }));
   return <div className="modal-backdrop"><section className="editor modal" role="dialog" aria-modal="true" aria-label="Edit panels">
-    <header><div><span className="eyebrow">GUIDED READING</span><h2>Make every panel yours.</h2><p>Page {page + 1} · Draw an outline, then arrange the reading order.</p></div><Button icon="close" title="Close panel editor" onClick={onClose}/></header>
+    <header><div><span className="eyebrow">GUIDED READING</span><h2>Edit panels</h2><p>Page {page + 1} · Draw an outline, then arrange the reading order.</p></div><Button icon="close" title="Close panel editor" onClick={onClose}/></header>
     <div className="editor-body"><div className="editor-preview" ref={preview}><div className="editor-canvas" style={{ width: canvasWidth, height: canvasWidth * result.height / result.width, maxWidth: '100%', flex: 'none' }}>
       <img src={imageUrl(book.id, page)} alt={`Page ${page + 1}`} draggable="false"/>
       <svg ref={svg} viewBox="0 0 1 1" preserveAspectRatio="none" className={`drawing tool-${tool}`}
