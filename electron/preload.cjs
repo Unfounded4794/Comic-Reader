@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('reader', {
   settings: settings => invoke('settings', settings), progress: (id, progress) => invoke('progress', id, progress),
   fullscreen: value => invoke('fullscreen', value), quit: () => invoke('quit'),
   on: (event, callback) => {
-    if (!['library', 'libraryBatch', 'fullscreen', 'open', 'error', 'syncStatus', 'remoteProgress', 'flush', 'scanProgress'].includes(event)) return () => {};
+    if (!['library', 'libraryBatch', 'fullscreen', 'open', 'error', 'syncStatus', 'remoteProgress', 'flush', 'scanProgress', 'folderBack'].includes(event)) return () => {};
     const handler = (_, data) => callback(data);
     ipcRenderer.on('reader:' + event, handler);
     return () => ipcRenderer.removeListener('reader:' + event, handler);

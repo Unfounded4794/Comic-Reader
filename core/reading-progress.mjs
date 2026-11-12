@@ -37,7 +37,11 @@ export async function fingerprint(file, cached = {}, { signal, known } = {}) {
     try { await handle.read(signature, 0, 4, 0); } finally { await handle.close(); }
     if (signature[0] === 0x50 && signature[1] === 0x4b) {
       const zip = await zipOpen(file, before.stat);
-      try { identity.contentId = zipIdentity(await abortable(zipEntries(zip), signal)); }
+      try {
+        const entries = await abortable(zipEntries(zip), signal);
+        identity.contentId = zipIdentity(entries);
+        identity.archivePageCount = entries.filter(entry => isImage(entry.fileName)).length;
+      }
       finally { zip.close(); }
       if (stamp(await fs.stat(file)) !== before.stamp) throw new Error('Comic changed while being identified.');
       if (cached.fingerprintStamp === before.stamp && cached.fingerprintVersion !== 2 && cached.contentId !== identity.contentId) identity.legacyContentId = cached.contentId;

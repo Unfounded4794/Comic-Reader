@@ -74,6 +74,36 @@ try {
     await page.getByRole('button', { name: 'Rescan folders', exact: true }).click(); await expect(page.locator('.book-card')).toHaveCount(1);
     await expect(page.locator('.scan-progress')).toHaveCount(0);
   });
+  await check('a failed network scan preserves comics and reopening works after reconnect', async () => {
+    const file = path.join(slow, 'Later issue.cbz'), detached = `${file}.offline`;
+    await app.evaluate((_, network) => {
+      const io = process.getBuiltinModule('fs/promises'), original = io.readdir;
+      globalThis.releaseNetworkTest = () => { io.readdir = original; };
+      io.readdir = async (folder, options) => {
+        if (folder === network) throw Object.assign(new Error('EIO: simulated disconnected share'), { code: 'EIO' });
+        return original(folder, options);
+      };
+    }, network);
+    await fs.rename(file, detached);
+    try {
+      await page.getByRole('button', { name: 'Rescan folders', exact: true }).click();
+      await expect(page.locator('.scan-warning')).toContainText('simulated disconnected share');
+      const state = await page.evaluate(() => window.reader.state());
+      expect(state.books.filter(book => book.root === network).map(book => book.missing)).toEqual([false, false]);
+      await page.locator('.book-card').click();
+      await expect(page.locator('.toast')).toContainText('Could not open “Later issue”');
+      await expect(page.locator('.book-card')).not.toHaveClass(/missing/);
+    } finally {
+      await fs.rename(detached, file);
+      await app.evaluate(() => globalThis.releaseNetworkTest());
+    }
+    await page.getByRole('button', { name: 'Retry scan', exact: true }).click();
+    await expect(page.locator('.scan-warning')).toHaveCount(0);
+    await page.locator('.book-card').click();
+    await expect(page.locator('.reader-title strong')).toHaveText('Later issue');
+    await expect(page.locator('.page-count')).toContainText('Page 1 / 2');
+    await expect(page.locator('.page-art img')).toBeVisible();
+  });
   expect(errors).toEqual([]); await fs.writeFile('validation/network-report.json', JSON.stringify({ checks, errors }, null, 2));
 } finally { await app.evaluate(() => globalThis.releaseNetworkTest?.()).catch(() => {}); await app.close(); }
 console.log(`Passed ${checks.length} network desktop checks.`);

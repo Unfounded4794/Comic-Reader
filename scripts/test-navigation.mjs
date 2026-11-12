@@ -89,6 +89,20 @@ try {
     await expect(page.locator('.book-card')).toHaveCount(2);
     await expect(page.locator('.folder-up')).toBeFocused();
   });
+  await check('Backspace and native Back move one folder up without deleting search navigation', async () => {
+    await page.keyboard.press('Backspace');
+    await expect(page.locator('.library-title h1')).toHaveText('Library.');
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].emit('app-command', { preventDefault() {} }, 'browser-backward');
+    });
+    await expect(page.locator('.library-title h1')).toHaveCount(0);
+    await page.locator('.folder-card').filter({ hasText: 'Series 01' }).click();
+    const search = page.getByLabel('Search comics');
+    await search.fill('Issue'); await search.press('End'); await search.press('Backspace');
+    await expect(search).toHaveValue('Issu');
+    await expect(page.locator('.library-title h1')).toHaveText('Series 01.');
+    await search.clear(); await search.blur();
+  });
   await check('backward chapter transition opens the final page; forward transition starts page one', async () => {
     await page.locator('.book-card').filter({ hasText: 'Issue 15' }).click();
     await expect(page.locator('.page-count')).toContainText('Page 1');
@@ -152,6 +166,23 @@ try {
     await expect(page.locator('.page-count')).toContainText('Page 3 / 3');
     await expect(page.locator('.page-count')).toContainText('Panel 1 / 2');
     await page.keyboard.press('p');
+  });
+  await check('R cycles width, height, and guided panels on the same page', async () => {
+    await goTo(2);
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.setViewportSize({ width: 900, height: 810 });
+    await page.keyboard.press('f'); await page.keyboard.press('r');
+    await expect(page.getByRole('button', { name: 'Fit width', exact: true })).toHaveClass(/active/);
+    await page.keyboard.press('r');
+    await expect(page.getByRole('button', { name: 'Fit height', exact: true })).toHaveClass(/active/);
+    await page.keyboard.press('r');
+    await expect(page.getByRole('button', { name: 'Toggle guided panel reading', exact: true })).toHaveClass(/active/);
+    await expect(page.locator('.page-count span')).toBeVisible();
+    await expect(page.locator('.page-count')).toContainText('Page 2 / 3');
+    await page.keyboard.press('r');
+    await expect(page.getByRole('button', { name: 'Fit width', exact: true })).toHaveClass(/active/);
+    await expect(page.locator('.page-count')).toContainText('Page 2 / 3');
+    await page.setViewportSize({ width: 1600, height: 1100 });
   });
   await check('guided view always contains wide and tall panels and ignores page fit shortcuts', async () => {
     const current = books.find(book => book.relativeDir === 'Series 01' && book.title === 'Issue 14');

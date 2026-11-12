@@ -7,6 +7,24 @@ export const bookId = file => createHash('sha256').update(process.platform === '
 const pathKey = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
 export async function scanFolders(folders, previous = [], { signal, onProgress = () => {}, onBatch = () => {}, concurrency = 4, io = fs } = {}) {
   const old = new Map(previous.map(b => [b.id, b])), books = new Map(), errors = [], batch = [];
+  const unverified = new Set();
+  function recordError(file, error) {
+    unverified.add(pathKey(file));
+    errors.push({ path: file, message: error.message });
+  }
+  function wasChecked(book) {
+    // An unreadable directory leaves every descendant unverified. A sibling
+    // that was successfully listed can still report actual removals.
+    const root = pathKey(book.root);
+    let file = pathKey(book.path);
+    while (true) {
+      if (unverified.has(file)) return false;
+      if (file === root) return true;
+      const parent = path.dirname(file);
+      if (parent === file) return false;
+      file = parent;
+    }
+  }
   const limited = limitConcurrency(concurrency), request = fn => limited(fn, signal);
   const progress = { foldersDone: 0, foldersFound: 0, filesFound: 0, added: 0, currentFolder: '' };
   let published = 0, finished = false;
@@ -28,7 +46,7 @@ export async function scanFolders(folders, previous = [], { signal, onProgress =
         let directory = entry.isDirectory(), regular = entry.isFile(), stat;
         if (entry.isSymbolicLink()) {
           try { stat = await request(() => io.stat(file)); checkAbort(signal); directory = stat.isDirectory(); regular = stat.isFile(); }
-          catch (error) { if (signal?.aborted) throw error; errors.push({ path: file, message: error.message }); return; }
+          catch (error) { if (signal?.aborted) throw error; recordError(file, error); return; }
         }
         if (directory) {
           if (entry.name === '.panel-reader-progress') return;
@@ -41,9 +59,9 @@ export async function scanFolders(folders, previous = [], { signal, onProgress =
           const before = old.get(id), book = { ...before, id, path: file, root, folder, relativeDir: path.relative(root, folder), source: 'library', title: path.basename(file, path.extname(file)), format: path.extname(file).slice(1).toUpperCase(), size: stat.size, modified: stat.mtimeMs, added: before?.added ?? Date.now(), isNew: before ? before.isNew : true, missing: false };
           books.set(id, book); batch.push(book); progress.filesFound++; if (!before) progress.added++;
           if ((batch.length >= 24 && Date.now() - published >= 50) || Date.now() - published >= 120) publish();
-        } catch (error) { if (signal?.aborted) throw error; errors.push({ path: file, message: error.message }); }
+        } catch (error) { if (signal?.aborted) throw error; recordError(file, error); }
       }));
-    } catch (error) { if (signal?.aborted) throw error; errors.push({ path: folder, message: error.message }); }
+    } catch (error) { if (signal?.aborted) throw error; recordError(folder, error); }
     finally { progress.foldersDone++; }
   }
   const roots = [...new Map(folders.map(folder => [pathKey(folder), path.resolve(folder)])).values()].sort((a, b) => b.length - a.length);
@@ -62,7 +80,8 @@ export async function scanFolders(folders, previous = [], { signal, onProgress =
   finally { clearInterval(timer); publish(); finished = true; }
   for (const before of previous) if (!books.has(before.id)) {
     if (before.root && !roots.some(root => pathKey(root) === pathKey(before.root))) continue;
-    books.set(before.id, { ...before, missing: cancelled || !before.root ? !!before.missing : true });
+    const confirmedMissing = !cancelled && before.root && wasChecked(before);
+    books.set(before.id, { ...before, missing: !!before.missing || !!confirmedMissing });
   }
   return { books: [...books.values()].sort((a, b) => naturalCompare(a.title, b.title)), added: progress.added, errors, cancelled, ...progress };
 }

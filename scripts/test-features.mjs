@@ -20,7 +20,7 @@ const longFile = path.join(library, 'Tall image.png');
 const longBytes = await sharp({ create: { width: 400, height: 18000, channels: 3, background: '#496b60' } }).png().toBuffer();
 await fs.writeFile(longFile, longBytes);
 const { books } = await scanFolders([library]);
-await fs.writeFile(path.join(data, 'library.json'), JSON.stringify({ folders: [library], books, settings: { ...DEFAULT_SETTINGS, panelPadding: 0, shapeDetection: !!process.env.PANEL_READER_JITTER_SAMPLE } }));
+await fs.writeFile(path.join(data, 'library.json'), JSON.stringify({ folders: [library], books, settings: { ...DEFAULT_SETTINGS, showCounter: false, panelPadding: 0, shapeDetection: !!process.env.PANEL_READER_JITTER_SAMPLE } }));
 const env = { ...process.env, PANEL_READER_DATA: data }; delete env.ELECTRON_RUN_AS_NODE;
 const launch = () => electron.launch({ ...(process.env.PANEL_READER_EXE ? { executablePath: process.env.PANEL_READER_EXE, args: [] } : { args: ['.'] }), env, timeout: 60000 });
 let app = await launch(), page = await app.firstWindow();
@@ -54,6 +54,11 @@ try {
   await check('version label comes from package metadata', async () => {
     const pkg = JSON.parse(await fs.readFile('package.json', 'utf8'));
     await expect(page.locator('.library-footer b')).toHaveText(pkg.version);
+  });
+  await check('an older hidden counter is restored and C cannot hide it from the library', async () => {
+    await page.keyboard.press('c');
+    const state = await page.evaluate(() => window.reader.state());
+    expect(state.settings.showCounter).toBe(true);
   });
   await check('upload is hidden without sharing; format and folder-name tooltips are visible', async () => {
     await expect(page.getByRole('button', { name: 'Upload progress', exact: true })).toHaveCount(0);
@@ -105,6 +110,16 @@ try {
     await page.getByRole('button', { name: 'Shortcut for Save original page', exact: true }).click(); await page.keyboard.press('Control+Alt+s');
     await page.getByRole('button', { name: 'Shortcut for Toggle favorite comic', exact: true }).click(); await page.keyboard.press('F9');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
+  });
+  await check('Go to page shows the current position even with the footer counter hidden', async () => {
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('c');
+    await page.locator('.page-count').getByText('Go to page', { exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Go to page' });
+    await expect(dialog).toContainText('Page 1 of 2');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.keyboard.press('c');
+    await expect(page.locator('.page-count')).toContainText('Page 1 / 2');
   });
   await check('CBZ exports exact original JPEG bytes and repeated save creates no duplicate', async () => {
     await page.keyboard.press('Control+Alt+s'); await expect(page.locator('.toast')).toContainText('Page saved:');

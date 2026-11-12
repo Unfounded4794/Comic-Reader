@@ -64,15 +64,27 @@ jobs:
           npm run test:features
           npm run test:progress
           npm run test:network
+          npm run test:navigation
       - name: Desktop feature checks on Linux
         if: runner.os == 'Linux'
         run: |
           xvfb-run -a npm run test:features
           xvfb-run -a npm run test:progress
           xvfb-run -a npm run test:network
+          xvfb-run -a npm run test:navigation
       - run: npm run ${{ matrix.command }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Check network recovery in the packaged Linux app
+        if: runner.os == 'Linux'
+        env:
+          PANEL_READER_EXE: ${{ github.workspace }}/release/linux-unpacked/panel-reader
+        run: xvfb-run -a npm run test:network
+      - name: Check page numbering in the packaged macOS app
+        if: runner.os == 'macOS'
+        env:
+          PANEL_READER_EXE: ${{ github.workspace }}/release/mac-arm64/Panel Reader.app/Contents/MacOS/Panel Reader
+        run: npm run test:features
       - name: Bundle corresponding source
         if: runner.os == 'Windows'
         run: npm run pack:source

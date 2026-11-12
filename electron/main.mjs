@@ -16,7 +16,7 @@ const pathKey = value => process.platform === 'win32' ? path.resolve(value).toLo
 const readableFile = value => COMIC_RE.test(value) || IMAGE_RE.test(value);
 if (process.env.PANEL_READER_DATA) app.setPath('userData', path.resolve(process.env.PANEL_READER_DATA));
 protocol.registerSchemesAsPrivileged([{ scheme: 'comic', privileges: { standard: true, secure: true, supportFetchAPI: true } }, { scheme: 'reader', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-let window, worker, coverWorker, panelWorker, scanTimer, scanning, scanController, state = { folders: [], books: [], settings: normalizeSettings(), lastBook: null };
+let window, worker, coverWorker, panelWorker, scanTimer, scanning, scanController, state = { folders: [], books: [], settings: normalizeSettings(), pageCounterPreferenceVersion: 1, lastBook: null };
 let saveQueue = Promise.resolve(); let serial = 0; const calls = new Map();
 let reading, syncTimer, indexing, identityController, flushClose, indexAgain = false, readerActive = false;
 const identities = new Map(), sessions = new Map();
@@ -65,7 +65,7 @@ async function identifyBook(id, known, signal) {
     if (current.contentId && current.contentId !== identity.contentId && !identity.legacyContentId) {
       // A new edition at the same path is a different book. Its old history
       // remains in the content store and must not migrate to the replacement.
-      delete current.progress; delete current.lastRead; delete current.pageCount;
+      delete current.progress; delete current.lastRead; delete current.pageCount; delete current.archivePageCount;
       delete current.readingRevision; delete current.readingConflicts;
       current.completed = false; current.isNew = true;
     }
@@ -114,6 +114,11 @@ async function addPaths(files) {
   }
   await save(); emit('library', state); void indexBooks(); return added;
 }
+function mergeScannedBook(book, latest) {
+  if (!latest) return book;
+  const { progress, pageCount, archivePageCount, completed, isNew, lastRead, favorite, progressSeeded, contentId, fingerprintStamp, fingerprintVersion } = latest;
+  return { ...book, progress, pageCount, archivePageCount, completed, isNew, lastRead, favorite, progressSeeded, contentId, fingerprintStamp, fingerprintVersion };
+}
 async function rescan() {
   if (scanning) return scanning;
   identityController?.abort(); scanController = new AbortController();
@@ -127,7 +132,7 @@ async function rescan() {
         const changed = [];
         for (const book of batch) {
           const latest = current.get(book.id);
-          current.set(book.id, latest ? { ...book, progress: latest.progress, completed: latest.completed, isNew: latest.isNew, lastRead: latest.lastRead, favorite: latest.favorite, progressSeeded: latest.progressSeeded, contentId: latest.contentId, fingerprintStamp: latest.fingerprintStamp, fingerprintVersion: latest.fingerprintVersion } : book);
+          current.set(book.id, mergeScannedBook(book, latest));
           changed.push(current.get(book.id));
         }
         state.books = [...current.values()]; emit('libraryBatch', { books: changed, folders: state.folders });
@@ -135,10 +140,14 @@ async function rescan() {
     });
     // Progress or separately opened books can change while the disk scan is running.
     const current = new Map(state.books.map(b => [b.id, b]));
-    state.books = result.books.map(b => { const latest = current.get(b.id); current.delete(b.id); return latest ? { ...b, progress: latest.progress, completed: latest.completed, isNew: latest.isNew, lastRead: latest.lastRead, favorite: latest.favorite, contentId: latest.contentId, fingerprintStamp: latest.fingerprintStamp, fingerprintVersion: latest.fingerprintVersion, progressSeeded: latest.progressSeeded } : b; });
+    state.books = result.books.map(book => {
+      const latest = current.get(book.id);
+      current.delete(book.id);
+      return mergeScannedBook(book, latest);
+    });
     state.books.push(...current.values());
     state.books.forEach(applyReading);
-    state.scanStatus = { ...state.scanStatus, active: false, cancelled: result.cancelled }; emit('scanProgress', state.scanStatus);
+    state.scanStatus = { ...state.scanStatus, active: false, cancelled: result.cancelled, errors: result.errors }; emit('scanProgress', state.scanStatus);
     await save(); emit('library', state); return { ...result, books: state.books };
   })().finally(() => { scanning = null; state.scanStatus = { ...state.scanStatus, active: false }; emit('scanProgress', state.scanStatus); if (!state.scanStatus.cancelled) void indexBooks(); });
   return scanning;
@@ -161,7 +170,10 @@ else {
   app.whenReady().then(async () => {
   try {
     const saved = JSON.parse(await fs.readFile(statePath(), 'utf8'));
-    state = { ...state, ...saved, settings: normalizeSettings(saved.settings), books: Array.isArray(saved.books) ? saved.books : [], folders: Array.isArray(saved.folders) ? saved.folders : [] };
+    const settings = normalizeSettings(saved.settings);
+    // Older profiles could hide the counter with C from anywhere in the app.
+    if (!saved.pageCounterPreferenceVersion) settings.showCounter = true;
+    state = { ...state, ...saved, settings, pageCounterPreferenceVersion: 1, books: Array.isArray(saved.books) ? saved.books : [], folders: Array.isArray(saved.folders) ? saved.folders : [] };
     state.books = state.books.map(book => book.root ? { ...book, source: 'library', folder: book.folder || path.dirname(book.path), relativeDir: book.relativeDir ?? path.relative(book.root, path.dirname(book.path)) } : { ...book, source: book.source || 'opened', folder: book.folder || path.dirname(book.path) });
   }
   catch (e) { if (e.code !== 'ENOENT') console.error('Could not restore library:', e.message); }
@@ -179,7 +191,13 @@ else {
   await reading.init(); state.books.forEach(applyReading);
   function createEngine(role) {
     const engine = new Worker(new URL('./worker.mjs', import.meta.url), { workerData: { role, models: app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(root, 'models'), cache: path.join(app.getPath('userData'), 'cache') } });
-    engine.on('message', ({ id, result, error }) => { const call = calls.get(id); if (!call) return; calls.delete(id); error ? call.reject(new Error(error)) : call.resolve(result); });
+    engine.on('message', ({ id, result, error, code }) => {
+      const call = calls.get(id);
+      if (!call) return;
+      calls.delete(id);
+      if (error) call.reject(Object.assign(new Error(error), { code }));
+      else call.resolve(result);
+    });
     const fail = error => { for (const [id, call] of calls) if (call.engine === engine) { call.reject(error); calls.delete(id); } };
     engine.on('error', error => { fail(error); emit('error', error.message); });
     engine.on('exit', code => fail(new Error(`${role} engine exited (${code}). Restart the app.`)));
@@ -195,7 +213,7 @@ else {
         try { return new Response(await fs.readFile(coverPath(path.join(app.getPath('userData'), 'cache'), book.path, book)), { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable' } }); } catch {}
       }
       const result = await rpc('image', { file: book.path, page, thumbnail: match[3] === 'cover', tile: match[4] === undefined ? undefined : Number(match[4]) });
-      if (result.identity && (book.contentId !== result.identity.contentId || book.fingerprintVersion !== 2)) {
+      if (result.identity && (book.contentId !== result.identity.contentId || book.fingerprintVersion !== 2 || !book.archivePageCount)) {
         void identifyBook(book.id, result.identity).then(() => { emit('library', state); return save(); }).catch(error => console.error('Could not match cover history:', error.message));
       }
       return new Response(result.bytes, { headers: { 'Content-Type': result.mime, 'Cache-Control': match[3] === 'cover' ? 'private, max-age=31536000, immutable' : 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -299,7 +317,12 @@ else {
   handle('open', async id => {
     readerActive = true; identityController?.abort(); void reading.sync();
     let book = getBook(id);
-    const result = await rpc('open', { file: book.path });
+    let result;
+    try { result = await rpc('open', { file: book.path }); }
+    catch (error) {
+      const reason = error.code && !error.message.includes(error.code) ? `${error.code}: ${error.message}` : error.message;
+      throw new Error(`Could not open “${book.title}”. ${reason}`);
+    }
     book = await identifyBook(id, result.identity); let saved = reading.get(book.contentId);
     if (saved.conflicts.length) return { id, title: book.title, conflicts: saved.conflicts, revision: saved.revision };
     // Opening a large archive can overlap an exchange or a library rescan.
@@ -307,7 +330,8 @@ else {
     book = getBook(id); saved = reading.get(book.contentId); applyReading(book);
     if (saved.conflicts.length) return { id, title: book.title, conflicts: saved.conflicts, revision: saved.revision };
     sessions.set(id, { clock: saved.clock, completed: saved.completed ?? book.completed ?? false, lastProgress: saved.unread ? undefined : saved.progress, contentId: book.contentId });
-    book.pageCount = result.names.length; book.isNew = false; book.lastRead = Date.now(); state.lastBook = id; await save();
+    book.pageCount = result.names.length; book.archivePageCount = result.names.length;
+    book.missing = false; book.isNew = false; book.lastRead = Date.now(); state.lastBook = id; await save();
     const { identity, ...opened } = result; return { ...book, ...opened };
   });
   handle('info', (id, page) => rpc('info', { file: getBook(id).path, page }));
@@ -336,6 +360,11 @@ else {
     window.setAppDetails({ appId, appIconPath: executable, relaunchCommand: `"${executable}"`, relaunchDisplayName: 'Panel Reader' });
   }
   window.setMenu(null);
+  window.on('app-command', (event, command) => {
+    if (command !== 'browser-backward') return;
+    event.preventDefault();
+    emit('folderBack');
+  });
   let closing = false;
   function requestClose() {
     if (flushClose) return;

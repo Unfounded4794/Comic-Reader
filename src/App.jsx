@@ -59,6 +59,7 @@ export default function App() {
   const [busy, setBusy] = useState(''), [detecting, setDetecting] = useState(false), [toast, setToast] = useState(null), [goto, setGoto] = useState('1'), [dragging, setDragging] = useState(false);
   const reader = useRef(), editor = useRef(), searchInput = useRef(), offset = useRef(0), openSerial = useRef(0), detectionSerial = useRef(0), toastTimer = useRef(), settingsSerial = useRef(0), latest = useRef(), lastSaved = useRef(''), guidedEntry = useRef(null), savingPage = useRef(false);
   const dirty = useRef(false), atEnd = useRef(false), pendingSave = useRef(Promise.resolve());
+  const lastFolderBack = useRef(null);
   const notify = useCallback((message, error = false, alwaysVisible = false, savedPath = null) => { setToast({ message: String(message), error, alwaysVisible, savedPath }); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), error || savedPath ? 10000 : 4500); }, []);
   const update = useCallback(next => {
     setSettings(next); const id = ++settingsSerial.current;
@@ -173,12 +174,12 @@ export default function App() {
     go(page + delta);
   };
   const choose = async kind => { try { const values = await window.reader[kind](); if (values?.length) openBook(values[0].id); } catch (e) { notify(e.message, true); } };
-  const scan = async add => { try { const result = await window.reader[add ? 'chooseFolder' : 'rescan'](); if (result) notify(`${result.cancelled ? 'Scan stopped. ' : ''}${result.added} new comic${result.added === 1 ? '' : 's'} found.${result.errors.length ? ` ${result.errors.length} folder/file(s) unavailable.` : ''}`, result.errors.length > 0); } catch (e) { notify(e.message, true); } };
-  const setMode = mode => {
+  const scan = async add => { try { const result = await window.reader[add ? 'chooseFolder' : 'rescan'](); if (result) notify(`${result.cancelled ? 'Scan stopped. ' : ''}${result.added} new comic${result.added === 1 ? '' : 's'} found.${result.errors.length ? ` ${result.errors.length} folder/file(s) could not be checked.` : ''}`, result.errors.length > 0); } catch (e) { notify(e.message, true); } };
+  const setMode = (mode, fit = settings.fit) => {
     const position = reader.current?.position();
     guidedEntry.current = settings.mode === 'webtoon' && mode === 'guided' && book ? { book: book.id, page: position?.page ?? page, offset: position?.offset ?? offset.current } : null;
     if (guidedEntry.current && guidedEntry.current.page !== page) setPage(guidedEntry.current.page);
-    dirty.current = true; atEnd.current = false; update({ ...settings, mode }); setZoom(1);
+    dirty.current = true; atEnd.current = false; update({ ...settings, mode, fit }); setZoom(1);
   };
   const setFit = fit => {
     if (settings.mode === 'guided') return;
@@ -187,6 +188,11 @@ export default function App() {
       const steps = [1.25, 1, .75, .5, .33];
       setZoom(current => settings.fit !== 'height' ? steps[0] : steps.find(value => value < current - .02) ?? steps[0]);
     } else setZoom(1);
+  };
+  const cycleReadingView = () => {
+    if (settings.mode === 'page' && settings.fit === 'width') setFit('height');
+    else if (settings.mode === 'page' && settings.fit === 'height') setMode('guided');
+    else setMode('page', 'width');
   };
   const chooseSaveFolder = async () => {
     try { const folder = await window.reader.chooseSaveFolder(); if (folder) update({ ...settings, savePageFolder: folder }); }
@@ -249,6 +255,7 @@ export default function App() {
       openFile: () => choose('chooseComic'), openImages: () => choose('chooseImages'), addFolder: () => scan(true), rescan: () => scan(false),
       savePage, favorite: () => toggleFavorite(view === 'reader' ? book?.id : document.activeElement?.closest('[data-book-id]')?.dataset.bookId),
       library: () => { persistPosition(); setView(view === 'library' && book ? 'reader' : 'library'); }, settings: () => { setPreferencesTab('reading'); setModal('settings'); },
+      folderBack: goUpFolder, cycleReadingView,
       next: () => turn(1), previous: () => turn(-1), nextPage: () => go(page + 1), previousPage: () => go(page - 1), first: () => go(0), last: () => go(book.names.length - 1),
       goToPage: () => { setGoto(String(page + 1)); setModal('goto'); },
       scrollDown: () => reader.current?.scroll(0, settings.scrollAmount), scrollUp: () => reader.current?.scroll(0, -settings.scrollAmount),
@@ -267,6 +274,9 @@ export default function App() {
     handlers[id]?.();
   };
   useLayoutEffect(() => {
+    const onMouseBack = event => {
+      if (event.button === 3 && requestFolderBack('mouse')) event.preventDefault();
+    };
     const onKey = event => {
       if (event.defaultPrevented || event.isComposing) return;
       // Enter activates the focused control. Arrow keys use spatial focus in
@@ -277,6 +287,14 @@ export default function App() {
         document.querySelector('.reader-title button:not(:disabled)')?.focus({ preventScroll: true });
         return;
       }
+      const chord = keyChord(event);
+      const browserBack = ['BrowserBack', 'GoBack'].includes(event.key) || ['BrowserBack', 'Alt+ArrowLeft'].includes(chord)
+        || (event.metaKey && chord === 'Ctrl+BracketLeft');
+      if (browserBack && view === 'library' && section === 'folder' && !modal) {
+        event.preventDefault();
+        if (!event.repeat) requestFolderBack('key');
+        return;
+      }
       const libraryField = event.target.matches?.('input[aria-label="Search comics"], select[aria-label="Sort comics"]');
       if (event.target.closest('input,textarea,select,[contenteditable="true"]') && !(libraryField && /^Arrow/.test(event.key))) return;
       if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && /^Arrow/.test(event.key) && (view === 'library' || modal || event.target.closest?.('button,[role="button"]'))) {
@@ -284,7 +302,6 @@ export default function App() {
         moveRemoteFocus(event.key);
         return;
       }
-      const chord = keyChord(event);
       let action = ACTIONS.find(([id]) => settings.shortcuts[id] && settings.shortcuts[id] === chord)?.[0];
       // Manga advances through panels and pages with Left and goes back with
       // Right. Other configured shortcuts retain their semantic actions.
@@ -294,11 +311,20 @@ export default function App() {
       }
       if (!action) return;
       if (modal && !['exitFullscreen', 'resetShortcuts'].includes(action) && !(modal === 'editor' && action.startsWith('editor'))) return;
+      if (['counter', 'cycleReadingView'].includes(action) && (view !== 'reader' || !book)) return;
+      if (action === 'folderBack' && (view !== 'library' || section !== 'folder')) return;
       if (!book && ['next','previous','nextPage','previousPage','first','last','goToPage','editPanels','redetect'].includes(action)) return;
       event.preventDefault(); if (event.repeat && !['scrollDown','scrollUp','scrollLeft','scrollRight','zoomIn','zoomOut'].includes(action)) return;
       run(action);
     };
-    window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
+    const offNativeBack = window.reader?.on('folderBack', () => requestFolderBack('native'));
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mouseup', onMouseBack);
+    return () => {
+      offNativeBack?.();
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mouseup', onMouseBack);
+    };
   });
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -322,6 +348,15 @@ export default function App() {
     const parts = selectedNode.relative.split('/'); parts.pop();
     const parent = findFolderNode(trees, { root: selectedNode.root, relative: parts.join('/') });
     if (parent) selectFolder(parent); else selectCollection('all');
+  };
+  const requestFolderBack = source => {
+    if (view !== 'library' || section !== 'folder' || modal) return false;
+    const now = performance.now(), last = lastFolderBack.current;
+    // A physical Back button can reach both the native window and Chromium.
+    if (last && last.source !== source && now - last.at < 120) return true;
+    lastFolderBack.current = { source, at: now };
+    goUpFolder();
+    return true;
   };
   const changeFolder = async folder => {
     try { const result = await window.reader.changeFolder(folder); if (result) notify(`Folder updated. ${result.added} new comic${result.added === 1 ? '' : 's'} found.`); }
@@ -348,24 +383,33 @@ export default function App() {
         <div className="sidebar-bottom">{actionButton('settings', 'settings', 'Preferences')}</div>
       </aside>
       <main className="library-main"><header className="library-top"><div className="breadcrumb">COLLECTION <span>/</span> {section === 'new' ? 'NEWLY ADDED' : section === 'history' ? 'READING HISTORY' : section === 'favorites' ? 'FAVORITES' : section === 'folder' ? selectedFolder?.name?.toUpperCase() : 'HOME'}</div><div className="button-row">{actionButton('openImages', 'webtoon', 'Image folder')}{actionButton('openFile', 'open', 'Open comic / image')}{actionButton('addFolder', 'plus', 'Add folder', { className: 'primary' })}</div></header>
+        {!scanStatus?.active && scanStatus?.errors?.length > 0 && <div className="scan-warning" role="status">
+          <strong>Some comics or folders could not be checked.</strong>
+          <span title={scanStatus.errors[0].path}>{scanStatus.errors[0].message}</span>
+          <Button onClick={() => scan(false)}>Retry scan</Button>
+        </div>}
         {scanStatus?.active && <div className="scan-progress" role="status"><div><strong>Finding comics</strong><span>{scanStatus.filesFound} comics · {scanStatus.foldersDone} of {scanStatus.foldersFound} discovered folders scanned</span><progress aria-label="Library scan progress" max={Math.max(1, scanStatus.foldersFound)} value={scanStatus.foldersDone}/><small title={scanStatus.currentFolder}>{scanStatus.currentFolder}</small></div><Button onClick={() => window.reader.cancelScan()}>Cancel scan</Button></div>}<div className={`library-content ${section === 'all' ? 'home-content' : ''}`}>{section !== 'all' && <div className="library-title"><div><div className="folder-title-line">{section === 'folder' && <button className="folder-up" onClick={goUpFolder} aria-label="Go up one folder"><Icon name="previous" size={19}/></button>}<h1 title={selectedFolder?.name}>{section === 'folder' ? selectedFolder?.name : section === 'history' ? 'Reading history' : section === 'favorites' ? 'Favorites' : 'Newly added'}<span>.</span></h1></div><p>{viewCount ? `${viewCount} comic${viewCount === 1 ? '' : 's'}${section === 'folder' ? ' in this folder tree' : ' in this view'}.` : 'No comics in this view yet.'}</p></div></div>}
           {!!continuations.length && !search && section === 'all' && <section className="up-next"><div className="shelf-heading"><div><h2>Continue reading</h2></div><span>{continuations.length} series</span></div><div className="up-next-grid">{continuations.map(item => <button key={`${folderKey(item.next.folder)}:${item.next.id}`} className={`next-card ${item.next.completed ? 'is-read' : ''}`} data-book-id={item.next.id} onClick={() => openBook(item.next.id)} onContextMenu={e => { e.preventDefault(); window.reader.bookContextMenu(item.next.id).catch(error => notify(error.message, true)); }}><img src={imageUrl(item.next.id, 0, 'cover', item.next)} alt=""/><div><span>{item.series}</span><strong>{item.next.title}</strong><small>{item.next.completed ? 'Finished' : item.resume ? `Page ${(item.next.progress?.page ?? 0) + 1}${item.next.pageCount ? ` of ${item.next.pageCount}` : ''}` : `After ${item.previous.title}`}</small></div><Icon name="arrow" size={17}/></button>)}</div></section>}
           <div className="library-controls"><div className="collection-tabs"><button className={section === 'all' ? 'active' : ''} onClick={() => selectCollection('all')}>Home <span>{homeCount}</span></button><button className={section === 'new' ? 'active' : ''} onClick={() => selectCollection('new')}>Newly added <span>{data.books.filter(b => b.isNew).length}</span></button><button className={section === 'history' ? 'active' : ''} onClick={() => selectCollection('history')}>History <span>{readingHistory(data.books).length}</span></button><button className={section === 'favorites' ? 'active' : ''} onClick={() => selectCollection('favorites')}>Favorites <span>{data.books.filter(b => b.favorite).length}</span></button>{section === 'folder' && <button className="active">{selectedFolder?.name} <span>{selectedNode?.count ?? 0}</span></button>}</div><div className="button-row"><label className="search"><Icon name="search" size={17}/><input ref={searchInput} aria-label="Search comics" placeholder="Search every folder…" value={search} onChange={e => setSearch(e.target.value)}/></label><select aria-label="Sort comics" value={sort} onChange={e => setSort(e.target.value)}><option value="title">Title A–Z</option><option value="recent">Last read</option><option value="added">Recently added</option></select></div></div>
           {!!browseFolders.length && <section className="folder-browser"><div className="shelf-heading"><div><h2>Folders</h2></div><span>{browseFolders.length} folder{browseFolders.length === 1 ? '' : 's'}</span></div><div className="folder-card-grid">{browseFolders.map(node => <FolderCard key={node.key} node={node} books={booksInFolder(data.books, node)} onOpen={() => selectFolder(node)}/>)}</div></section>}
-          {books.length ? <><div className="issue-heading"><span>{search ? 'Search results' : section === 'all' ? 'Loose comics and images' : section === 'folder' ? 'Comics in this folder' : section === 'history' ? 'Previously read' : section === 'favorites' ? 'Favorite comics' : 'New comics'}</span><small>{books.length}</small></div><div className="book-grid">{books.map(b => <div className="book-tile" key={b.id} data-book-id={b.id} onContextMenu={e => { e.preventDefault(); window.reader.bookContextMenu(b.id).catch(error => notify(error.message, true)); }}><button className={`book-card ${b.completed ? 'is-read' : ''} ${b.missing ? 'missing' : ''}`} onClick={() => openBook(b.id)} title={b.path}><div className="cover"><img loading="lazy" src={imageUrl(b.id, 0, 'cover', b)} alt={`Cover of ${b.title}`} onError={e => { e.currentTarget.style.opacity = 0; }}/><div className="cover-fallback"><Icon name="book" size={44}/></div>{!b.completed && b.isNew && <span className="new-badge">NEW</span>}<span className="cover-play"><Icon name="open"/>Read comic</span>{b.progress && <div className="reading-progress" style={{ width: `${((b.progress.page + 1) / (b.pageCount || 1)) * 100}%` }}/>}</div><h3>{b.title}</h3><div className="book-meta"><span className="book-format">{b.format}</span><span>{b.missing ? 'Unavailable' : b.completed ? 'Read' : b.progress ? `Page ${b.progress.page + 1} / ${b.pageCount}` : 'Unread'}</span></div></button>{b.completed && <button className="read-badge mark-unread" aria-label={`Mark unread: ${b.title}`} title="Mark unread" onClick={() => markReading(b.id, false)}><Icon name="check" size={12}/><span className="read-label">Read</span><span className="unread-label">Mark unread</span></button>}{!b.completed && <button className="read-badge mark-read" aria-label={`Mark read: ${b.title}`} title="Mark read" onClick={() => markReading(b.id, true)}><Icon name="check" size={12}/><span>Mark read</span></button>}<button className={`book-favorite ${b.favorite ? 'active' : ''}`} aria-label={`${b.favorite ? 'Remove from' : 'Add to'} favorites: ${b.title}`} aria-pressed={!!b.favorite} onClick={() => toggleFavorite(b.id)}><Icon name="star" size={18}/></button></div>)}</div></> : !browseFolders.length && <div className="empty-library"><div className="empty-art"><div/><div/><Icon name="book" size={64}/></div><h2>{data.books.length ? 'No comics match this view.' : 'No comics added'}</h2><p>{data.books.length ? 'Try another search or choose another folder.' : 'Add a folder or open a comic.'}</p>{!data.books.length && <div className="button-row">{actionButton('addFolder', 'folder', 'Choose a folder', { className: 'primary' })}{actionButton('openFile', 'open', 'Open a comic or image')}</div>}</div>}
+          {books.length ? <><div className="issue-heading"><span>{search ? 'Search results' : section === 'all' ? 'Loose comics and images' : section === 'folder' ? 'Comics in this folder' : section === 'history' ? 'Previously read' : section === 'favorites' ? 'Favorite comics' : 'New comics'}</span><small>{books.length}</small></div><div className="book-grid">{books.map(b => <div className="book-tile" key={b.id} data-book-id={b.id} onContextMenu={e => { e.preventDefault(); window.reader.bookContextMenu(b.id).catch(error => notify(error.message, true)); }}><button className={`book-card ${b.completed ? 'is-read' : ''} ${b.missing ? 'missing' : ''}`} onClick={() => openBook(b.id)} title={b.path}><div className="cover"><img loading="lazy" src={imageUrl(b.id, 0, 'cover', b)} alt={`Cover of ${b.title}`} onLoad={e => { e.currentTarget.style.opacity = ''; }} onError={e => { e.currentTarget.style.opacity = 0; }}/><div className="cover-fallback"><Icon name="book" size={44}/></div>{!b.completed && b.isNew && <span className="new-badge">NEW</span>}<span className="cover-play"><Icon name="open"/>Read comic</span>{b.progress && <div className="reading-progress" style={{ width: `${((b.progress.page + 1) / (b.pageCount || 1)) * 100}%` }}/>}</div><h3>{b.title}</h3><div className="book-meta"><span className="book-format">{b.format}</span><span>{bookPageStatus(b)}</span></div></button>{b.completed && <button className="read-badge mark-unread" aria-label={`Mark unread: ${b.title}`} title="Mark unread" onClick={() => markReading(b.id, false)}><Icon name="check" size={12}/><span className="read-label">Read</span><span className="unread-label">Mark unread</span></button>}{!b.completed && <button className="read-badge mark-read" aria-label={`Mark read: ${b.title}`} title="Mark read" onClick={() => markReading(b.id, true)}><Icon name="check" size={12}/><span>Mark read</span></button>}<button className={`book-favorite ${b.favorite ? 'active' : ''}`} aria-label={`${b.favorite ? 'Remove from' : 'Add to'} favorites: ${b.title}`} aria-pressed={!!b.favorite} onClick={() => toggleFavorite(b.id)}><Icon name="star" size={18}/></button></div>)}</div></> : !browseFolders.length && <div className="empty-library"><div className="empty-art"><div/><div/><Icon name="book" size={64}/></div><h2>{data.books.length ? 'No comics match this view.' : 'No comics added'}</h2><p>{data.books.length ? 'Try another search or choose another folder.' : 'Add a folder or open a comic.'}</p>{!data.books.length && <div className="button-row">{actionButton('addFolder', 'folder', 'Choose a folder', { className: 'primary' })}{actionButton('openFile', 'open', 'Open a comic or image')}</div>}</div>}
         </div><footer className="library-footer"><span>Panel Reader <b>{appVersion}</b></span></footer>
       </main>
     </> : <main className="reader-main">
       {showChrome && <header className="reader-toolbar"><div className="reader-title">{actionButton('library', 'library')}<div><strong title={book?.title}>{book?.title}</strong><span>{settings.mode === 'guided' ? `Guided panels · ${settings.direction === 'rtl' ? 'Manga' : 'Left to right'}` : settings.mode === 'webtoon' ? 'Continuous scroll' : settings.direction === 'rtl' ? 'Page view · Manga' : 'Page view'}</span></div></div><div className="reader-tools"><div className="segmented">{actionButton('fitPage','fit',null,{ className: settings.mode === 'guided' || settings.fit === 'page' ? 'active' : '', disabled: settings.mode === 'guided' })}{actionButton('fitWidth','width',null,{ className: settings.mode !== 'guided' && settings.fit === 'width' ? 'active' : '', disabled: settings.mode === 'guided' })}{actionButton('fitHeight','height',null,{ className: settings.mode !== 'guided' && settings.fit === 'height' ? 'active' : '', disabled: settings.mode === 'guided' })}</div><div className="tool-divider"/>{actionButton('guided','panels',null,{ className: settings.mode === 'guided' ? 'active' : '' })}{actionButton('webtoon','webtoon',null,{ className: settings.mode === 'webtoon' ? 'active' : '' })}{actionButton('toggleDirection','manga',null,{ className: settings.direction === 'rtl' ? 'active' : '' })}{actionButton('editPanels','edit')}{actionButton('savePage','save')}{actionButton('favorite','star',null,{ className: book?.favorite ? 'active favorite-active' : '', 'aria-pressed': !!book?.favorite })}<div className="tool-divider"/>{actionButton('settings','settings')}{actionButton('fullscreen','fullscreen')}</div></header>}
       {remoteBook === book?.id && showChrome && <div className="sync-notice" role="status"><span>A different reading position is available.</span><Button onClick={() => openBook(book.id)}>Use saved position</Button><button aria-label="Keep reading here" onClick={() => setRemoteBook(null)}>×</button></div>}
       {book && <Reader key={`${book.id}:${book.openedAt}`} ref={reader} book={{ ...book, progress: { page, offset: offset.current } }} page={page} info={info} panels={panels} panel={panel} settings={settings} zoom={zoom} onPage={target => { if (target !== page) { setPanel(0); setPanels(null); setPage(target); } }} onOffset={(value, user) => { offset.current = value; if (user) dirty.current = true; }} onEnd={value => { atEnd.current = value; }} onError={message => notify(message, true)}/>}
-      {showChrome && <footer className="reader-footer"><div className="reader-status">{detecting ? <><span className="spinner small"/>Finding panels…</> : settings.mode === 'guided' ? <><span className="status-dot"/>{panels?.manual ? 'Your panel layout' : panels?.fallback ? 'Whole page' : `${panels?.panels.length ?? '…'} panels detected`}</> : <span>{settings.direction === 'ltr' ? 'Left to right' : 'Manga · right to left'} <i>·</i> {settings.mode === 'webtoon' ? 'Continuous scroll' : 'Drag to pan'}</span>}</div><div className="page-navigation">{settings.direction === 'rtl' ? actionButton('next','previous',null,{ title: 'Next page / panel (ArrowLeft)', disabled: detecting && settings.mode === 'guided' }) : actionButton('previous','previous',null,{ disabled: detecting && settings.mode === 'guided' })}{settings.showCounter && <button className="page-count" title={title('goToPage')} onClick={() => run('goToPage')}>Page <strong>{page + 1}</strong> / {book?.names.length}{settings.mode === 'guided' && panels && <span> · Panel {Number.isFinite(panel) ? panel + 1 : '…'} / {panels.panels.length}</span>}</button>}{settings.direction === 'rtl' ? actionButton('previous','next',null,{ title: 'Previous page / panel (ArrowRight)', disabled: detecting && settings.mode === 'guided' }) : actionButton('next','next',null,{ disabled: detecting && settings.mode === 'guided' })}</div><div className="zoom-tools">{actionButton('zoomOut','minus')}<span>{Math.round(zoom * 100)}%</span>{actionButton('zoomIn','plus')}</div></footer>}
+      {showChrome && <footer className="reader-footer"><div className="reader-status">{detecting ? <><span className="spinner small"/>Finding panels…</> : settings.mode === 'guided' ? <><span className="status-dot"/>{panels?.manual ? 'Your panel layout' : panels?.fallback ? 'Whole page' : `${panels?.panels.length ?? '…'} panels detected`}</> : <span>{settings.direction === 'ltr' ? 'Left to right' : 'Manga · right to left'} <i>·</i> {settings.mode === 'webtoon' ? 'Continuous scroll' : 'Drag to pan'}</span>}</div><div className="page-navigation">{settings.direction === 'rtl' ? actionButton('next','previous',null,{ title: 'Next page / panel (ArrowLeft)', disabled: detecting && settings.mode === 'guided' }) : actionButton('previous','previous',null,{ disabled: detecting && settings.mode === 'guided' })}<button className="page-count" title={title('goToPage')} onClick={() => run('goToPage')}>
+          {settings.showCounter ? <>Page <strong>{page + 1}</strong> / {book?.names.length}
+            {settings.mode === 'guided' && panels && <span> · Panel {Number.isFinite(panel) ? panel + 1 : '…'} / {panels.panels.length}</span>}
+          </> : 'Go to page'}
+        </button>{settings.direction === 'rtl' ? actionButton('previous','next',null,{ title: 'Previous page / panel (ArrowRight)', disabled: detecting && settings.mode === 'guided' }) : actionButton('next','next',null,{ disabled: detecting && settings.mode === 'guided' })}</div><div className="zoom-tools">{actionButton('zoomOut','minus')}<span>{Math.round(zoom * 100)}%</span>{actionButton('zoomIn','plus')}</div></footer>}
     </main>}
     {(modal === 'settings' || modal === 'background') && <Preferences key={modal} initialTab={preferencesTab} settings={settings} update={update} onChooseSaveFolder={chooseSaveFolder} onChooseProgressFolder={chooseProgressFolder} onStopSharing={stopSharing} syncStatus={data.syncStatus} folders={data.folders} onChangeFolder={changeFolder} onRemoveFolder={folder => { setFolderPending(folder); setModal('removeFolder'); }} onClose={() => setModal(null)}/>}
     {modal === 'progressConflict' && progressConflict && <div className="modal-backdrop"><section className="modal small-modal progress-conflict" role="dialog" aria-modal="true" aria-label="Choose reading position"><h2>Where should we continue?</h2><p>Two devices read <strong>{progressConflict.title}</strong> independently. Choose the position you want to keep.</p><div className="progress-choices">{progressConflict.conflicts.map(choice => <Button key={choice.id} disabled={!!busy} onClick={() => resolveProgress(choice)}><strong>{choice.unread ? 'Unread' : choice.completed ? 'Finished' : `Page ${choice.progress.page + 1}`}</strong><span>{choice.progress.mode === 'guided' ? `Panel ${choice.progress.panel + 1} · ` : ''}{new Date(choice.at).toLocaleString()}</span></Button>)}</div><footer><Button onClick={() => { setProgressConflict(null); setModal(null); }}>Decide later</Button></footer></section></div>}
     {modal === 'editor' && panels && <PanelEditor key={`${book.id}-${page}`} ref={editor} book={book} page={page} result={panels} onSave={async corrections => { const result = await window.reader.savePanels(book.id, page, corrections); setPanels(result); setPanel(0); setModal(null); notify('Panel layout saved.'); }} onClose={() => setModal(null)} onError={message => notify(message, true)}/>}
     {modal === 'editor' && !panels && <div className="modal-backdrop"><section className="modal small-modal" role="dialog" aria-label="Loading panel editor"><h2>{detecting ? 'Finding panels…' : 'Could not detect panels'}</h2><p>{detecting ? 'Preparing the editable page layout.' : 'You can draw the page layout yourself.'}</p><div className="button-row"><Button onClick={() => setModal(null)}>Cancel</Button>{!detecting && info && <Button onClick={() => setPanels({ ...info, panels: [{ x: 0, y: 0, w: 1, h: 1, polygon: [[0,0],[1,0],[1,1],[0,1]] }] })}>Draw manually</Button>}</div></section></div>}
-    {modal === 'goto' && <div className="modal-backdrop"><form className="modal small-modal" role="dialog" aria-label="Go to page" onSubmit={e => { e.preventDefault(); const value = Number(goto); if (Number.isInteger(value) && value >= 1 && value <= book.names.length) { go(value - 1); setModal(null); } }}><h2>Go to page</h2><p>Choose a page from 1 to {book.names.length}.</p><input autoFocus aria-label="Page number" type="number" min={1} max={book.names.length} value={goto} onChange={e => setGoto(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setModal(null); }}/><footer><Button type="button" onClick={() => setModal(null)}>Cancel</Button><Button className="primary" type="submit">Go to page</Button></footer></form></div>}
+    {modal === 'goto' && <div className="modal-backdrop"><form className="modal small-modal" role="dialog" aria-label="Go to page" onSubmit={e => { e.preventDefault(); const value = Number(goto); if (Number.isInteger(value) && value >= 1 && value <= book.names.length) { go(value - 1); setModal(null); } }}><h2>Go to page</h2><p>Page {page + 1} of {book.names.length}</p><input autoFocus aria-label="Page number" type="number" min={1} max={book.names.length} value={goto} onChange={e => setGoto(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setModal(null); }}/><footer><Button type="button" onClick={() => setModal(null)}>Cancel</Button><Button className="primary" type="submit">Go to page</Button></footer></form></div>}
     {modal === 'redetect' && <div className="modal-backdrop"><section className="modal small-modal" role="dialog" aria-label="Replace saved panels"><h2>Replace this page’s corrections?</h2><p>Detecting again replaces your saved outlines and reading order for this page.</p><footer><Button onClick={() => setModal(null)}>Keep corrections</Button><Button className="primary" onClick={() => { setModal(null); detect(true); }}>Detect again</Button></footer></section></div>}
     {modal === 'removeFolder' && <div className="modal-backdrop"><section className="modal small-modal" role="dialog" aria-label="Remove library folder"><h2>Remove this library folder?</h2><p><strong>{folderPending?.split(/[\\/]/).filter(Boolean).at(-1)}</strong> and its scanned comics will disappear from this library. Your comic files will stay untouched.</p><footer><Button onClick={() => { setFolderPending(null); setModal(null); }}>Cancel</Button><Button className="danger" onClick={() => removeFolder(folderPending)}>Remove folder</Button></footer></section></div>}
     {toast && (showChrome || toast.alwaysVisible) && <div role="status" className={`toast ${toast.error ? 'error' : ''}`} onMouseEnter={() => clearTimeout(toastTimer.current)} onMouseLeave={() => { toastTimer.current = setTimeout(() => setToast(null), 4500); }}><Icon name={toast.error ? 'close' : 'check'} size={18}/><span>{toast.message}{toast.savedPath && <> <button className="saved-location" title="Open file location" onClick={() => window.reader.revealSavedPage(toast.savedPath).catch(error => notify(error.message, true, true))}>{toast.savedPath}</button></>}</span><button aria-label="Dismiss message" onClick={() => setToast(null)}>×</button></div>}
@@ -380,6 +424,14 @@ function FolderNode({ node, selection, active, onSelect, onChange, onRemove }) {
     <button className="folder-select" onClick={() => onSelect(node)}><Icon name="folder" size={16}/><span title={node.name}>{node.name}</span><small>{node.count}</small></button>
     <span className="folder-actions"><button aria-label={`Change ${node.name} folder`} title="Change folder location" onClick={() => onChange(node.root)}><Icon name="edit" size={13}/></button><button aria-label={`Remove ${node.name} folder`} title="Remove library folder" onClick={() => onRemove(node.root)}><Icon name="trash" size={13}/></button></span>
   </div></div>;
+}
+
+function bookPageStatus(book) {
+  if (book.missing) return 'Unavailable';
+  const pages = book.archivePageCount || book.pageCount;
+  if (!book.completed && book.progress && pages) return `Page ${book.progress.page + 1} / ${pages}`;
+  const status = book.completed ? 'Read' : 'Unread';
+  return pages ? `${status} · ${pages} ${pages === 1 ? 'page' : 'pages'}` : status;
 }
 
 function FolderCard({ node, books, onOpen }) {

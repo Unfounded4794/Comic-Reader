@@ -3,12 +3,14 @@ export const ACTIONS = [
   ['openImages', 'Open image folder / webtoon', 'Ctrl+Alt+O'], ['rescan', 'Rescan library', 'F5'],
   ['savePage', 'Save original page', 'Ctrl+Shift+S'], ['favorite', 'Toggle favorite comic', 'Ctrl+D'],
   ['library', 'Show library / return to reader', 'L'], ['settings', 'Preferences & shortcuts', 'Ctrl+Comma'],
+  ['folderBack', 'Go up one library folder', 'Backspace'],
   ['next', 'Next page / panel', 'ArrowRight'], ['previous', 'Previous page / panel', 'ArrowLeft'],
   ['nextPage', 'Next whole page', 'PageDown'], ['previousPage', 'Previous whole page', 'PageUp'],
   ['first', 'First page', 'Home'], ['last', 'Last page', 'End'], ['goToPage', 'Go to page', 'G'],
   ['scrollDown', 'Scroll down within page', 'ArrowDown'], ['scrollUp', 'Scroll up within page', 'ArrowUp'],
   ['scrollLeft', 'Scroll left within page', 'Shift+ArrowLeft'], ['scrollRight', 'Scroll right within page', 'Shift+ArrowRight'],
   ['fitPage', 'Fit entire page', 'F'], ['fitWidth', 'Fit width', 'W'], ['fitHeight', 'Fit height', 'H'],
+  ['cycleReadingView', 'Cycle width, height, and guided panels', 'R'],
   ['zoomIn', 'Zoom in', 'Equal'], ['zoomOut', 'Zoom out', 'Minus'], ['actualSize', 'Actual size', 'Digit0'],
   ['fullscreen', 'Toggle clean fullscreen', 'F11'], ['exitFullscreen', 'Exit fullscreen / close dialog', 'Escape'],
   ['toggleChrome', 'Show / hide controls', 'Tab'], ['counter', 'Toggle page counter', 'C'],
@@ -45,6 +47,9 @@ export function normalizeSettings(input = {}) {
   if (typeof input.savePageFolder === 'string' && input.savePageFolder.length < 32768 && !input.savePageFolder.includes('\0')) out.savePageFolder = input.savePageFolder;
   if (typeof input.progressFolder === 'string' && input.progressFolder.length < 32768 && !input.progressFolder.includes('\0')) out.progressFolder = input.progressFolder;
   for (const [id] of ACTIONS) if (typeof input.shortcuts?.[id] === 'string' && input.shortcuts[id].length < 90) out.shortcuts[id] = input.shortcuts[id];
+  for (const id of ['folderBack', 'cycleReadingView']) {
+    if (input.shortcuts?.[id] === undefined && Object.entries(out.shortcuts).some(([other, key]) => other !== id && key === out.shortcuts[id])) out.shortcuts[id] = '';
+  }
   return out;
 }
 export function keyChord(event) {

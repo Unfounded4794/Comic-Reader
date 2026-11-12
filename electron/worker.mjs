@@ -2,22 +2,28 @@ import { parentPort, workerData } from 'node:worker_threads';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import sharp from 'sharp';
 import { openArchive } from '../core/archive.mjs';
 import { mediaKey, coverPath, writeCache } from '../core/media-cache.mjs';
 sharp.cache({ memory: 64, files: 8, items: 30 }); sharp.concurrency(2);
 const archives = new Map(), images = new Map(); let memory = 0, detector, panelModule;
+const retryable = new Set(['EBADF', 'EBUSY', 'EIO', 'ENODEV', 'ENOENT', 'ENOTCONN', 'ESTALE', 'ETIMEDOUT', 'ECONNRESET']);
+function closeArchive(file) {
+  archives.get(file)?.handle.close();
+  archives.delete(file);
+}
 async function archive(file, source, force = false) {
   let value = archives.get(file);
   if (value && !force && source && value.stat.size === source.size && value.stat.mtimeMs === source.modified) return value;
   if (value && !force && !source && Date.now() - value.checked < 30000) return value;
   const stat = await fs.stat(file), version = `${stat.size}-${stat.mtimeMs}-${stat.ctimeMs}`;
-  if (value && value.version !== version) { value.handle.close(); archives.delete(file); value = null; }
+  if (value && value.version !== version) { closeArchive(file); value = null; }
   if (value) { value.checked = Date.now(); value.stat = stat; archives.delete(file); archives.set(file, value); return value; }
   const fingerprint = mediaKey(file, { size: stat.size, modified: stat.mtimeMs });
   const handle = await openArchive(file, { rarCache: path.join(workerData.cache, `${fingerprint}-archive.rar`) });
   value = { handle, fingerprint, version, stat, checked: Date.now() }; archives.set(file, value);
-  while (archives.size > 3) { const first = archives.keys().next().value; archives.get(first).handle.close(); archives.delete(first); }
+  while (archives.size > 3) closeArchive(archives.keys().next().value);
   return value;
 }
 async function raw(file, page, source) {
@@ -100,20 +106,31 @@ const methods = {
 };
 await fs.mkdir(workerData.cache, { recursive: true });
 let queue = Promise.resolve();
+async function perform(method, args) {
+  try { return await methods[method](args); }
+  catch (error) {
+    if (!retryable.has(error.code) || args.thumbnail || method === 'savePanels') throw error;
+    // A reconnect can invalidate an open descriptor while path metadata stays
+    // identical. Discard it so the retry opens the file on the live mount.
+    closeArchive(args.file);
+    await delay(150);
+    return methods[method](args);
+  }
+}
 parentPort.on('message', ({ id, method, args }) => {
   queue = queue.then(async () => {
     try {
       if (!methods[method]) throw new Error('Unknown worker operation.');
-      const result = await methods[method](args);
+      const result = await perform(method, args);
       if (method === 'image' && args.thumbnail) {
         const book = archives.get(args.file);
         if (book?.handle.contentId && (!args.source || (book.stat.size === args.source.size && book.stat.mtimeMs === args.source.modified))) {
           const { stat } = book;
-          result.identity = { contentId: book.handle.contentId, fingerprintStamp: `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`, fingerprintVersion: 2, size: stat.size, modified: stat.mtimeMs };
+          result.identity = { contentId: book.handle.contentId, fingerprintStamp: `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`, fingerprintVersion: 2, size: stat.size, modified: stat.mtimeMs, archivePageCount: book.handle.names.length };
         }
       }
       parentPort.postMessage({ id, result });
     }
-    catch (error) { parentPort.postMessage({ id, error: error.message }); }
+    catch (error) { parentPort.postMessage({ id, error: error.message, code: error.code }); }
   });
 });

@@ -65,6 +65,23 @@ test('metadata requests use bounded concurrency rather than one network round tr
   const io = { ...fs, stat: async (...args) => { active++; peak = Math.max(peak, active); await pause(5); try { return await fs.stat(...args); } finally { active--; } } };
   const result = await scanFolders([root], [], { io, concurrency: 4 }); assert.equal(result.books.length, 20); assert.equal(peak, 4);
 });
+test('scan failures leave unreadable paths unverified while marking confirmed removals', async t => {
+  const root = await fixture(t), subtree = path.join(root, 'Unreachable');
+  await fs.mkdir(subtree);
+  const held = path.join(subtree, 'Held.cbz'), unreadable = path.join(root, 'Unreadable.cbz'), deleted = path.join(root, 'Deleted.cbz');
+  for (const file of [held, unreadable, deleted]) await fs.writeFile(file, 'data');
+  const first = await scanFolders([root]);
+  await fs.unlink(deleted);
+  const inaccessible = Object.assign(new Error('Disconnected share'), { code: 'EIO' });
+  const io = {
+    ...fs,
+    async readdir(folder, options) { if (folder === subtree) throw inaccessible; return fs.readdir(folder, options); },
+    async stat(file) { if (file === unreadable) throw inaccessible; return fs.stat(file); },
+  };
+  const second = await scanFolders([root], first.books, { io });
+  assert.equal(second.errors.length, 2);
+  assert.deepEqual(second.books.map(book => [book.title, book.missing]), [['Deleted', true], ['Held', false], ['Unreadable', false]]);
+});
 test('cancel returns without waiting for a stalled network call and retains unvisited books', async t => {
   const root = await fixture(t); await fs.writeFile(path.join(root, 'Existing.cbz'), 'data'); const first = await scanFolders([root]);
   const controller = new AbortController(); let release; const pending = new Promise(resolve => { release = resolve; }); let batches = 0;
