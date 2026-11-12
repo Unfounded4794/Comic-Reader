@@ -55,8 +55,9 @@ try {
     const pkg = JSON.parse(await fs.readFile('package.json', 'utf8'));
     await expect(page.locator('.library-footer b')).toHaveText(pkg.version);
   });
-  await check('an older hidden counter is restored and C cannot hide it from the library', async () => {
+  await check('an older hidden counter is restored and library keys leave reader controls visible', async () => {
     await page.keyboard.press('c');
+    await page.keyboard.press('Tab');
     const state = await page.evaluate(() => window.reader.state());
     expect(state.settings.showCounter).toBe(true);
   });

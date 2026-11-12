@@ -311,7 +311,7 @@ export default function App() {
       }
       if (!action) return;
       if (modal && !['exitFullscreen', 'resetShortcuts'].includes(action) && !(modal === 'editor' && action.startsWith('editor'))) return;
-      if (['counter', 'cycleReadingView'].includes(action) && (view !== 'reader' || !book)) return;
+      if (['counter', 'cycleReadingView', 'toggleChrome'].includes(action) && (view !== 'reader' || !book)) return;
       if (action === 'folderBack' && (view !== 'library' || section !== 'folder')) return;
       if (!book && ['next','previous','nextPage','previousPage','first','last','goToPage','editPanels','redetect'].includes(action)) return;
       event.preventDefault(); if (event.repeat && !['scrollDown','scrollUp','scrollLeft','scrollRight','zoomIn','zoomOut'].includes(action)) return;
