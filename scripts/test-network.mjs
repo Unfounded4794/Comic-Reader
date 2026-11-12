@@ -104,6 +104,45 @@ try {
     await expect(page.locator('.page-count')).toContainText('Page 1 / 2');
     await expect(page.locator('.page-art img')).toBeVisible();
   });
+  if (process.platform === 'linux') await check('an expired KDE SMB mount reconnects without re-adding comics or the progress folder', async () => {
+    const runtime = path.join(root, 'runtime'), tools = path.join(root, 'tools');
+    const before = path.join(runtime, 'kio-fuse-Test1', 'smb', 'server.local', 'Comic Library');
+    const after = path.join(runtime, 'kio-fuse-Test2', 'smb', 'server.local', 'Comic Library');
+    for (const folder of [before, path.dirname(after), tools]) await fs.mkdir(folder, { recursive: true });
+    await comic(path.join(before, 'KDE issue.cbz'), 'kde');
+    await fs.writeFile(path.join(tools, 'dbus-send'), `#!/bin/sh
+[ "$7" = org.kde.KIOFuse.VFS.mountUrl ] || exit 1
+[ "$8" = string:smb://server.local/Comic%20Library ] || exit 1
+printf 'method return\n   string "%s"\n' "$PANEL_READER_TEST_KDE_PATH"
+`, { mode: 0o755 });
+    await page.keyboard.press('l');
+    await app.evaluate(({ dialog }, { runtime, tools, before, after }) => {
+      process.env.XDG_RUNTIME_DIR = runtime;
+      process.env.PATH = `${tools}:${process.env.PATH}`;
+      process.env.PANEL_READER_TEST_KDE_PATH = after;
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [before] });
+    }, { runtime, tools, before, after });
+    await page.getByRole('button', { name: 'Add library folder', exact: true }).last().click();
+    await page.getByLabel('Search comics').fill('KDE issue');
+    const tile = page.locator('.book-tile').filter({ hasText: 'KDE issue' });
+    await expect(tile).toHaveCount(1);
+    await expect(page.locator('.scan-progress')).toHaveCount(0);
+    const id = await tile.getAttribute('data-book-id');
+    await page.evaluate(async folder => {
+      const { settings } = await window.reader.state();
+      await window.reader.settings({ ...settings, progressFolder: folder });
+    }, before);
+    await fs.rename(before, after);
+    await tile.locator('.book-card').click();
+    await expect(page.locator('.reader-title strong')).toHaveText('KDE issue');
+    await expect(page.locator('.page-art img')).toBeVisible();
+    const status = await page.evaluate(() => window.reader.syncProgress());
+    expect(status.state).toBe('synced');
+    expect((await fs.readdir(path.join(after, '.panel-reader-progress'))).some(name => name.endsWith('.json'))).toBe(true);
+    await page.keyboard.press('l');
+    await expect(tile).toHaveAttribute('data-book-id', id);
+    await expect(tile.locator('.book-card')).not.toHaveClass(/missing/);
+  });
   expect(errors).toEqual([]); await fs.writeFile('validation/network-report.json', JSON.stringify({ checks, errors }, null, 2));
 } finally { await app.evaluate(() => globalThis.releaseNetworkTest?.()).catch(() => {}); await app.close(); }
 console.log(`Passed ${checks.length} network desktop checks.`);

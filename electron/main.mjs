@@ -9,6 +9,7 @@ import { normalizeSettings } from '../core/settings.mjs';
 import { saveOriginalPage } from '../core/page-export.mjs';
 import { ReadingProgress, fingerprint, legacyCompleted, readingComplete } from '../core/reading-progress.mjs';
 import { coverPath } from '../core/media-cache.mjs';
+import { KdeSmbPaths } from '../core/kde-smb.mjs';
 const appId = 'org.panelreader.desktop';
 if (process.platform === 'win32') app.setAppUserModelId(appId);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,9 +22,20 @@ let saveQueue = Promise.resolve(); let serial = 0; const calls = new Map();
 let reading, syncTimer, indexing, identityController, flushClose, indexAgain = false, readerActive = false;
 const identities = new Map(), sessions = new Map();
 const savedPages = new Set();
+const kdePaths = new KdeSmbPaths({
+  onReconnect(url) {
+    const roots = state.folders.filter(folder => kdePaths.reference(folder)?.url === url);
+    if (roots.length) void rescan(roots).catch(error => emit('error', error.message));
+  },
+});
+function sameStoragePath(first, second) {
+  if (pathKey(first) === pathKey(second)) return true;
+  const left = kdePaths.reference(first), right = kdePaths.reference(second);
+  return left && right && left.url === right.url && left.relative === right.relative;
+}
 async function reveal(file) {
-  try { await fs.stat(file); } catch { throw new Error('This location is unavailable. Check the drive connection.'); }
-  shell.showItemInFolder(file);
+  const mounted = await kdePaths.run(file, async candidate => { await fs.stat(candidate); return candidate; });
+  shell.showItemInFolder(mounted);
 }
 const statePath = () => path.join(app.getPath('userData'), 'library.json');
 function save() {
@@ -40,8 +52,11 @@ function rpc(method, args) {
   if (!engine) return Promise.reject(new Error('The reader engine is not running. Restart the app.'));
   const book = state.books.find(book => book.path === args.file);
   if (book && Number.isFinite(book.size) && Number.isFinite(book.modified)) args = { ...args, source: { size: book.size, modified: book.modified, pageCount: book.pageCount } };
-  const id = ++serial;
-  return new Promise((resolve, reject) => { calls.set(id, { resolve, reject, engine }); engine.postMessage({ id, method, args }); });
+  return kdePaths.run(args.file, mountedPath => new Promise((resolve, reject) => {
+    const id = ++serial;
+    calls.set(id, { resolve, reject, engine });
+    engine.postMessage({ id, method, args: { ...args, mountedPath } });
+  }));
 }
 function getBook(id) { const book = state.books.find(b => b.id === id); if (!book) throw new Error('Comic is not in the library.'); return book; }
 function applyReading(book) {
@@ -52,7 +67,7 @@ async function identifyBook(id, known, signal) {
   const book = getBook(id), file = book.path;
   if (identities.has(file) && !known) return identities.get(file);
   const task = (async () => {
-    const identity = await fingerprint(file, book, { known, signal });
+    const identity = await kdePaths.run(file, mounted => fingerprint(mounted, book, { known, signal }));
     // A foreground open already has a freshly read index. It supersedes an
     // outstanding background lookup instead of waiting for network metadata.
     if (identities.get(file) !== task) return state.books.find(item => item.id === id);
@@ -106,9 +121,12 @@ async function addPaths(files) {
   const added = [];
   for (const file of files) {
     if (typeof file !== 'string' || !path.isAbsolute(file)) throw new Error('Invalid file path.');
-    const stat = await fs.stat(file);
+    kdePaths.remember(file);
+    const stat = await kdePaths.run(file, mounted => fs.stat(mounted));
     if (!stat.isDirectory() && !readableFile(file)) throw new Error('Choose a comic archive, supported image, or image folder.');
-    const id = bookId(file); let book = state.books.find(b => b.id === id);
+    const id = bookId(file);
+    const kdeSource = kdePaths.reference(file);
+    let book = state.books.find(b => b.id === id || (kdeSource && sameStoragePath(b.path, file)));
     if (!book) { book = { id, path: file, folder: stat.isDirectory() ? file : path.dirname(file), source: 'opened', title: stat.isDirectory() ? path.basename(file) : path.basename(file, path.extname(file)), format: stat.isDirectory() ? 'IMAGES' : path.extname(file).slice(1).toUpperCase(), added: Date.now(), size: stat.size, modified: stat.mtimeMs, isNew: true }; state.books.push(book); }
     added.push(book);
   }
@@ -119,13 +137,18 @@ function mergeScannedBook(book, latest) {
   const { progress, pageCount, archivePageCount, completed, isNew, lastRead, favorite, progressSeeded, contentId, fingerprintStamp, fingerprintVersion } = latest;
   return { ...book, progress, pageCount, archivePageCount, completed, isNew, lastRead, favorite, progressSeeded, contentId, fingerprintStamp, fingerprintVersion };
 }
-async function rescan() {
+async function rescan(roots = [...state.folders]) {
   if (scanning) return scanning;
   identityController?.abort(); scanController = new AbortController();
   state.scanStatus = { active: true, foldersDone: 0, foldersFound: 1, filesFound: 0, added: 0 }; emit('scanProgress', state.scanStatus);
   scanning = (async () => {
     const snapshot = state.books;
-    const result = await scanFolders([...state.folders], snapshot, { signal: scanController.signal,
+    const result = await scanFolders(roots, snapshot, { signal: scanController.signal,
+      io: {
+        realpath: file => kdePaths.run(file, mounted => fs.realpath(mounted)),
+        readdir: (file, options) => kdePaths.run(file, mounted => fs.readdir(mounted, options)),
+        stat: file => kdePaths.run(file, mounted => fs.stat(mounted)),
+      },
       onProgress(progress) { state.scanStatus = { ...progress, active: true }; emit('scanProgress', state.scanStatus); },
       onBatch(batch) {
         const current = new Map(state.books.map(book => [book.id, book]));
@@ -179,6 +202,7 @@ else {
   catch (e) { if (e.code !== 'ENOENT') console.error('Could not restore library:', e.message); }
   state.books.forEach(book => { book.completed = legacyCompleted(book); });
   reading = new ReadingProgress({ localFile: path.join(app.getPath('userData'), 'reading-progress.json'), sharedFolder: () => state.settings.progressFolder,
+    accessFolder: (folder, operation) => kdePaths.run(folder, operation),
     onChange(keys, remote) {
       const affected = state.books.filter(book => keys.includes(book.contentId));
       affected.forEach(applyReading); void save().catch(error => emit('error', error.message)); emit('library', state);
@@ -230,7 +254,8 @@ else {
   handle('chooseProgressFolder', async () => {
     const result = await dialog.showOpenDialog(window, { title: 'Choose the same shared progress folder on each device', defaultPath: state.settings.progressFolder || undefined, properties: ['openDirectory', 'createDirectory'] });
     if (result.canceled) return null;
-    state.settings.progressFolder = result.filePaths[0]; await save(); void reading.sync(); return state.settings;
+    state.settings.progressFolder = result.filePaths[0]; kdePaths.remember(state.settings.progressFolder);
+    await save(); void reading.sync(); return state.settings;
   });
   handle('stopSharing', async () => { state.settings.progressFolder = ''; await save(); await reading.sync(); return state.settings; });
   handle('syncProgress', async () => { await reading.sync({ force: true }); return state.syncStatus; });
@@ -267,12 +292,14 @@ else {
   });
   handle('chooseSaveFolder', async () => {
     const result = await dialog.showOpenDialog(window, { title: 'Choose a folder for saved pages', defaultPath: state.settings.savePageFolder || undefined, properties: ['openDirectory', 'createDirectory'] });
-    return result.canceled ? null : result.filePaths[0];
+    if (result.canceled) return null;
+    kdePaths.remember(result.filePaths[0]);
+    return result.filePaths[0];
   });
   handle('savePage', async (id, page) => {
     const book = getBook(id);
     const original = await rpc('original', { file: book.path, page });
-    const result = await saveOriginalPage({ ...original, title: book.title, folder: state.settings.savePageFolder });
+    const result = await kdePaths.run(state.settings.savePageFolder, folder => saveOriginalPage({ ...original, title: book.title, folder }));
     savedPages.add(result.path); return result;
   });
   handle('favorite', async id => {
@@ -288,7 +315,9 @@ else {
   handle('chooseFolder', async () => {
     const result = await dialog.showOpenDialog(window, { title: 'Add a library folder (including subfolders)', properties: ['openDirectory'] });
     if (result.canceled) return null;
-    if (!state.folders.includes(result.filePaths[0])) state.folders.push(result.filePaths[0]);
+    const selected = result.filePaths[0];
+    kdePaths.remember(selected);
+    if (!state.folders.some(folder => sameStoragePath(folder, selected))) state.folders.push(selected);
     await save(); emit('library', state); return rescan();
   });
   handle('addPaths', addPaths);
@@ -298,6 +327,8 @@ else {
     const result = await dialog.showOpenDialog(window, { title: 'Choose the new location for this library folder', properties: ['openDirectory'] });
     if (result.canceled) return null;
     const replacement = path.resolve(result.filePaths[0]);
+    kdePaths.remember(replacement);
+    if (sameStoragePath(folder, replacement)) return rescan();
     state.folders = [...new Map(state.folders.map(value => pathKey(value) === pathKey(folder) ? replacement : value).map(value => [pathKey(value), value])).values()];
     state.books = state.books.map(book => {
       if (!book.root || pathKey(book.root) !== pathKey(folder)) return book;
@@ -313,7 +344,7 @@ else {
     state.books = state.books.filter(book => !book.root || pathKey(book.root) !== pathKey(folder));
     await save(); emit('library', state); return state;
   });
-  handle('rescan', rescan);
+  handle('rescan', () => rescan());
   handle('open', async id => {
     readerActive = true; identityController?.abort(); void reading.sync();
     let book = getBook(id);

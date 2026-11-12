@@ -11,6 +11,7 @@ import yazl from 'yazl';
 import sharp from 'sharp';
 import { scanFolders } from '../core/library.mjs';
 import { openArchive } from '../core/archive.mjs';
+import { KdeSmbPaths, kdeSmbPath } from '../core/kde-smb.mjs';
 import { fingerprint } from '../core/reading-progress.mjs';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function fixture(t) { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'panel-network-')); t.after(() => fs.rm(root, { recursive: true, force: true })); return root; }
@@ -81,6 +82,29 @@ test('scan failures leave unreadable paths unverified while marking confirmed re
   const second = await scanFolders([root], first.books, { io });
   assert.equal(second.errors.length, 2);
   assert.deepEqual(second.books.map(book => [book.title, book.missing]), [['Deleted', true], ['Held', false], ['Unreadable', false]]);
+});
+test('expired KDE SMB paths reconnect once per share and retain their relative paths', async () => {
+  const old = '/run/user/1000/kio-fuse-X9a/smb/server.local/Comic Library';
+  const fresh = '/run/user/1000/kio-fuse-Y1b/smb/server.local/Comic Library';
+  const missing = Object.assign(new Error('Path is gone'), { code: 'ENOENT' });
+  let mounts = 0;
+  const access = new KdeSmbPaths({ enabled: true, stat: async () => { throw missing; },
+    async mount(url) {
+      assert.equal(url, 'smb://server.local/Comic%20Library');
+      mounts++;
+      await pause(10);
+      return fresh;
+    },
+  });
+  const open = async file => { if (file.startsWith(old)) throw missing; return file; };
+  assert.deepEqual(await Promise.all(['Series/One.cbz', 'Series/Two.cbz'].map(file => access.run(`${old}/${file}`, open))), [
+    `${fresh}/Series/One.cbz`, `${fresh}/Series/Two.cbz`,
+  ]);
+  assert.equal(await access.run(`${old}/Series/Three.cbz`, open), `${fresh}/Series/Three.cbz`);
+  assert.equal(mounts, 1);
+  assert.equal(kdeSmbPath('/mnt/comics/One.cbz'), undefined);
+  const online = new KdeSmbPaths({ enabled: true, stat: async () => {}, async mount() { assert.fail('An ordinary missing file should not remount'); } });
+  await assert.rejects(online.run(`${old}/Deleted.cbz`, open), { code: 'ENOENT' });
 });
 test('cancel returns without waiting for a stalled network call and retains unvisited books', async t => {
   const root = await fixture(t); await fs.writeFile(path.join(root, 'Existing.cbz'), 'data'); const first = await scanFolders([root]);

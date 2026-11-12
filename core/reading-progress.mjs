@@ -121,8 +121,9 @@ function peerIssue(file, error) {
 // Local mutations never wait for network I/O. Every installation owns a separate
 // shared snapshot, and vectors retain concurrent positions until explicitly chosen.
 export class ReadingProgress {
-  constructor({ localFile, sharedFolder = () => '', onChange = () => {}, onStatus = () => {} }) {
+  constructor({ localFile, sharedFolder = () => '', accessFolder = (folder, operation) => operation(folder), onChange = () => {}, onStatus = () => {} }) {
     this.localFile = localFile; this.sharedFolder = sharedFolder; this.onChange = onChange; this.onStatus = onStatus;
+    this.accessFolder = accessFolder;
     this.document = empty(); this.queue = Promise.resolve(); this.generation = 0; this.syncedGeneration = -1;
     this.peers = new Map(); this.targets = new Set(); this.lastTarget = '';
   }
@@ -184,11 +185,13 @@ export class ReadingProgress {
   async exchange(folder, force = false) {
     // Do not create the selected root: a disconnected mount must not become a
     // new local directory. Only create our private subfolder inside an existing root.
-    if (!(await fs.stat(folder)).isDirectory()) throw new Error('Shared folder is unavailable.');
-    const target = path.join(folder, '.panel-reader-progress');
-    if (!this.targets.has(target)) { await fs.mkdir(target, { recursive: true }); this.targets.add(target); }
-    try { return await this.exchangeFiles(folder, target, force); }
-    catch (error) { if (error.code === 'ENOENT') this.targets.delete(target); throw error; }
+    return this.accessFolder(folder, async mounted => {
+      if (!(await fs.stat(mounted)).isDirectory()) throw new Error('Shared folder is unavailable.');
+      const target = path.join(mounted, '.panel-reader-progress');
+      if (!this.targets.has(target)) { await fs.mkdir(target, { recursive: true }); this.targets.add(target); }
+      try { return await this.exchangeFiles(folder, target, force); }
+      catch (error) { if (error.code === 'ENOENT') this.targets.delete(target); throw error; }
+    });
   }
   async exchangeFiles(folder, target, force) {
     const names = (await fs.readdir(target)).filter(name => /^[a-zA-Z0-9-]{1,80}\.json$/.test(name));
