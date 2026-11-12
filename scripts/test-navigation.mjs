@@ -220,7 +220,9 @@ try {
     await expect(page.getByRole('button', { name: 'Fit width', exact: true })).toHaveClass(/active/);
   });
   await check('manga mode reverses panel and page turns and exposes matching footer controls', async () => {
-    await page.keyboard.press('p'); await page.keyboard.press('ArrowLeft'); await expect(page.locator('.page-count')).toContainText('Panel 1 / 2');
+    await page.keyboard.press('p');
+    await expect(page.locator('.page-count')).toContainText('Panel 2 / 2');
+    await page.keyboard.press('ArrowLeft'); await expect(page.locator('.page-count')).toContainText('Panel 1 / 2');
     await page.getByRole('button', { name: 'Switch left-to-right / right-to-left', exact: true }).click();
     await expect(page.locator('.reader-title span')).toContainText('Manga');
     await expect(page.locator('.reader-status')).toContainText('Your panel layout');
